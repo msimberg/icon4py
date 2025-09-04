@@ -245,35 +245,8 @@ def _kernel(
             raise ValueError(f"Unsupported kernel: {kernel}")
 
 
-def _cartesian_coordinates_from_zonal_and_meridional_components(
-    geometry_type: base_grid.GeometryType,
-    lat: data_alloc.NDArray,
-    lon: data_alloc.NDArray,
-    u: data_alloc.NDArray,
-    v: data_alloc.NDArray,
-    array_ns: ModuleType = np,
-) -> tuple[data_alloc.NDArray, data_alloc.NDArray, data_alloc.NDArray]:
-    match geometry_type:
-        case base_grid.GeometryType.ICOSAHEDRON:
-            cos_lat = array_ns.cos(lat)
-            sin_lat = array_ns.sin(lat)
-            cos_lon = array_ns.cos(lon)
-            sin_lon = array_ns.sin(lon)
-
-            x = -u * sin_lon - v * sin_lat * cos_lon
-            y = u * cos_lon - v * sin_lat * sin_lon
-            z = cos_lat * v
-
-            return x, y, z
-        case base_grid.GeometryType.TORUS:
-            return u, v, array_ns.zeros_like(u)
-        case _:
-            raise ValueError(f"Unsupported geometry type: {geometry_type}")
-
-
 def _compute_rbf_interpolation_coeffs(
-    element_center_lat: data_alloc.NDArray,
-    element_center_lon: data_alloc.NDArray,
+    element_center_uv_xyz: list[tuple[data_alloc.NDArray, data_alloc.NDArray, data_alloc.NDArray]],
     element_center_x: data_alloc.NDArray,
     element_center_y: data_alloc.NDArray,
     element_center_z: data_alloc.NDArray,
@@ -349,26 +322,18 @@ def _compute_rbf_interpolation_coeffs(
     assert rbf_val.shape == rbf_offset.shape
 
     # Set up right hand side(s) of linear system
-    z_nx = []
     nxnx = []
     rhs = []
     num_zonal_meridional_components = len(uv)
 
     assert 1 <= num_zonal_meridional_components <= 2
+    assert len(element_center_uv_xyz) == num_zonal_meridional_components
     for i in range(num_zonal_meridional_components):
-        z_nx_x, z_nx_y, z_nx_z = _cartesian_coordinates_from_zonal_and_meridional_components(
-            geometry_type,
-            element_center_lat[horizontal_start:],
-            element_center_lon[horizontal_start:],
-            uv[i][0][horizontal_start:],
-            uv[i][1][horizontal_start:],
-            array_ns=array_ns,
-        )
-        z_nx.append(array_ns.stack((z_nx_x, z_nx_y, z_nx_z), axis=-1))
-        assert z_nx[i].shape == (rbf_offset.shape[0], 3)
+        z_nx = array_ns.stack([x[horizontal_start:] for x in element_center_uv_xyz[i]], axis=-1)
+        assert z_nx.shape == (rbf_offset.shape[0], 3)
 
         nxnx.append(
-            array_ns.matmul(z_nx[i][:, array_ns.newaxis], edge_normal.transpose(0, 2, 1)).squeeze()
+            array_ns.matmul(z_nx[:, array_ns.newaxis], edge_normal.transpose(0, 2, 1)).squeeze()
         )
         rhs.append(rbf_val * nxnx[i])
         assert rhs[i].shape == rbf_offset.shape
@@ -431,8 +396,12 @@ def _compute_rbf_interpolation_coeffs(
 
 
 def compute_rbf_interpolation_coeffs_cell(
-    cell_center_lat: data_alloc.NDArray,
-    cell_center_lon: data_alloc.NDArray,
+    cell_center_u_x: data_alloc.NDArray,
+    cell_center_u_y: data_alloc.NDArray,
+    cell_center_u_z: data_alloc.NDArray,
+    cell_center_v_x: data_alloc.NDArray,
+    cell_center_v_y: data_alloc.NDArray,
+    cell_center_v_z: data_alloc.NDArray,
     cell_center_x: data_alloc.NDArray,
     cell_center_y: data_alloc.NDArray,
     cell_center_z: data_alloc.NDArray,
@@ -456,8 +425,10 @@ def compute_rbf_interpolation_coeffs_cell(
     ones = array_ns.ones(rbf_offset.shape[0], dtype=ta.wpfloat)
 
     coeffs = _compute_rbf_interpolation_coeffs(
-        cell_center_lat,
-        cell_center_lon,
+        [
+            (cell_center_u_x, cell_center_u_y, cell_center_u_z),
+            (cell_center_v_x, cell_center_v_y, cell_center_v_z),
+        ],
         cell_center_x,
         cell_center_y,
         cell_center_z,
@@ -482,8 +453,9 @@ def compute_rbf_interpolation_coeffs_cell(
 
 
 def compute_rbf_interpolation_coeffs_edge(
-    edge_lat: data_alloc.NDArray,
-    edge_lon: data_alloc.NDArray,
+    edge_tangent_x: data_alloc.NDArray,
+    edge_tangent_y: data_alloc.NDArray,
+    edge_tangent_z: data_alloc.NDArray,
     edge_center_x: data_alloc.NDArray,
     edge_center_y: data_alloc.NDArray,
     edge_center_z: data_alloc.NDArray,
@@ -502,8 +474,9 @@ def compute_rbf_interpolation_coeffs_edge(
     array_ns: ModuleType = np,
 ) -> data_alloc.NDArray:
     coeffs = _compute_rbf_interpolation_coeffs(
-        edge_lat,  # these should be ignored for torus
-        edge_lon,  # these should be ignored for torus
+        [
+            (edge_tangent_x, edge_tangent_y, edge_tangent_z),
+        ],
         edge_center_x,
         edge_center_y,
         edge_center_z,
@@ -528,8 +501,12 @@ def compute_rbf_interpolation_coeffs_edge(
 
 
 def compute_rbf_interpolation_coeffs_vertex(
-    vertex_lat: data_alloc.NDArray,
-    vertex_lon: data_alloc.NDArray,
+    vertex_u_x: data_alloc.NDArray,
+    vertex_u_y: data_alloc.NDArray,
+    vertex_u_z: data_alloc.NDArray,
+    vertex_v_x: data_alloc.NDArray,
+    vertex_v_y: data_alloc.NDArray,
+    vertex_v_z: data_alloc.NDArray,
     vertex_x: data_alloc.NDArray,
     vertex_y: data_alloc.NDArray,
     vertex_z: data_alloc.NDArray,
@@ -552,8 +529,10 @@ def compute_rbf_interpolation_coeffs_vertex(
     ones = array_ns.ones(rbf_offset.shape[0], dtype=ta.wpfloat)
 
     coeffs = _compute_rbf_interpolation_coeffs(
-        vertex_lat,
-        vertex_lon,
+        [
+            (vertex_u_x, vertex_u_y, vertex_u_z),
+            (vertex_v_x, vertex_v_y, vertex_v_z),
+        ],
         vertex_x,
         vertex_y,
         vertex_z,

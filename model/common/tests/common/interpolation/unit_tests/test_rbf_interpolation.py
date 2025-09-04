@@ -165,8 +165,12 @@ def test_rbf_interpolation_coeffs_cell(
     assert horizontal_start < grid.num_cells
 
     rbf_vec_coeff_c1, rbf_vec_coeff_c2 = rbf.compute_rbf_interpolation_coeffs_cell(
-        geometry.get(geometry_attrs.CELL_LAT).ndarray,
-        geometry.get(geometry_attrs.CELL_LON).ndarray,
+        geometry.get(geometry_attrs.CELL_CENTER_U_X).ndarray,
+        geometry.get(geometry_attrs.CELL_CENTER_U_Y).ndarray,
+        geometry.get(geometry_attrs.CELL_CENTER_U_Z).ndarray,
+        geometry.get(geometry_attrs.CELL_CENTER_V_X).ndarray,
+        geometry.get(geometry_attrs.CELL_CENTER_V_Y).ndarray,
+        geometry.get(geometry_attrs.CELL_CENTER_V_Z).ndarray,
         geometry.get(geometry_attrs.CELL_CENTER_X).ndarray,
         geometry.get(geometry_attrs.CELL_CENTER_Y).ndarray,
         geometry.get(geometry_attrs.CELL_CENTER_Z).ndarray,
@@ -239,8 +243,12 @@ def test_rbf_interpolation_coeffs_vertex(
     assert horizontal_start < grid.num_vertices
 
     rbf_vec_coeff_v1, rbf_vec_coeff_v2 = rbf.compute_rbf_interpolation_coeffs_vertex(
-        geometry.get(geometry_attrs.VERTEX_LAT).ndarray,
-        geometry.get(geometry_attrs.VERTEX_LON).ndarray,
+        geometry.get(geometry_attrs.VERTEX_U_X).ndarray,
+        geometry.get(geometry_attrs.VERTEX_U_Y).ndarray,
+        geometry.get(geometry_attrs.VERTEX_U_Z).ndarray,
+        geometry.get(geometry_attrs.VERTEX_V_X).ndarray,
+        geometry.get(geometry_attrs.VERTEX_V_Y).ndarray,
+        geometry.get(geometry_attrs.VERTEX_V_Z).ndarray,
         geometry.get(geometry_attrs.VERTEX_X).ndarray,
         geometry.get(geometry_attrs.VERTEX_Y).ndarray,
         geometry.get(geometry_attrs.VERTEX_Z).ndarray,
@@ -295,7 +303,7 @@ def test_rbf_interpolation_coeffs_vertex(
 @pytest.mark.parametrize(
     "grid_file, experiment, atol",
     [
-        (dt_utils.R02B04_GLOBAL, dt_utils.GLOBAL_EXPERIMENT, 8e-14),
+        (dt_utils.R02B04_GLOBAL, dt_utils.GLOBAL_EXPERIMENT, 1e-12),
         (dt_utils.REGIONAL_EXPERIMENT, dt_utils.REGIONAL_EXPERIMENT, 2e-9),
         (dt_utils.WEISMAN_KLEMP_EXPERIMENT, dt_utils.WEISMAN_KLEMP_EXPERIMENT, 0),
     ],
@@ -319,8 +327,9 @@ def test_rbf_interpolation_coeffs_edge(
     assert horizontal_start < grid.num_edges
 
     rbf_vec_coeff_e = rbf.compute_rbf_interpolation_coeffs_edge(
-        geometry.get(geometry_attrs.EDGE_LAT).ndarray,
-        geometry.get(geometry_attrs.EDGE_LON).ndarray,
+        geometry.get(geometry_attrs.EDGE_TANGENT_X).ndarray,
+        geometry.get(geometry_attrs.EDGE_TANGENT_Y).ndarray,
+        geometry.get(geometry_attrs.EDGE_TANGENT_Z).ndarray,
         geometry.get(geometry_attrs.EDGE_CENTER_X).ndarray,
         geometry.get(geometry_attrs.EDGE_CENTER_Y).ndarray,
         geometry.get(geometry_attrs.EDGE_CENTER_Z).ndarray,

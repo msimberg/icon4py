@@ -444,6 +444,154 @@ def cartesian_coordinates_from_zonal_and_meridional_components_on_edges(
     return x / norm, y / norm, z / norm
 
 
+@gtx.field_operator(grid_type=gtx.GridType.UNSTRUCTURED)
+def cartesian_coordinates_from_zonal_and_meridional_components_on_edges_2(
+    lat: fa.EdgeField[ta.wpfloat],
+    lon: fa.EdgeField[ta.wpfloat],
+    u: ta.wpfloat,
+    v: ta.wpfloat,
+) -> tuple[fa.EdgeField[ta.wpfloat], fa.EdgeField[ta.wpfloat], fa.EdgeField[ta.wpfloat]]:
+    """
+    Compute cartesian coordinates from zonal an meridional components at position (lat, lon)
+    Args:
+        lat: latitude
+        lon: longitude
+        u: zonal component
+        v: meridional component
+
+    Returns:
+        x, y, z cartesian components
+
+    """
+    cos_lat = cos(lat)
+    sin_lat = sin(lat)
+    cos_lon = cos(lon)
+    sin_lon = sin(lon)
+
+    x = -u * sin_lon - v * sin_lat * cos_lon
+    y = u * cos_lon - v * sin_lat * sin_lon
+    z = cos_lat * v
+
+    norm = norm2_on_edges(x, y, z)
+    return x / norm, y / norm, z / norm
+
+
+@gtx.field_operator(grid_type=gtx.GridType.UNSTRUCTURED)
+def cartesian_coordinates_from_zonal_and_meridional_components_on_cells_2(
+    lat: fa.CellField[ta.wpfloat],
+    lon: fa.CellField[ta.wpfloat],
+    u: ta.wpfloat,
+    v: ta.wpfloat,
+) -> tuple[fa.CellField[ta.wpfloat], fa.CellField[ta.wpfloat], fa.CellField[ta.wpfloat]]:
+    """
+    Compute cartesian coordinates from zonal an meridional components at position (lat, lon)
+    Args:
+        lat: latitude
+        lon: longitude
+        u: zonal component
+        v: meridional component
+
+    Returns:
+        x, y, z cartesian components
+
+    """
+    cos_lat = cos(lat)
+    sin_lat = sin(lat)
+    cos_lon = cos(lon)
+    sin_lon = sin(lon)
+
+    x = -u * sin_lon - v * sin_lat * cos_lon
+    y = u * cos_lon - v * sin_lat * sin_lon
+    z = cos_lat * v
+
+    norm = norm2_on_cells(x, y, z)
+    return x / norm, y / norm, z / norm
+
+
+@gtx.field_operator(grid_type=gtx.GridType.UNSTRUCTURED)
+def cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_2(
+    lat: fa.VertexField[ta.wpfloat],
+    lon: fa.VertexField[ta.wpfloat],
+    u: ta.wpfloat,
+    v: ta.wpfloat,
+) -> tuple[fa.VertexField[ta.wpfloat], fa.VertexField[ta.wpfloat], fa.VertexField[ta.wpfloat]]:
+    """
+    Compute cartesian coordinates from zonal an meridional components at position (lat, lon)
+    Args:
+        lat: latitude
+        lon: longitude
+        u: zonal component
+        v: meridional component
+
+    Returns:
+        x, y, z cartesian components
+
+    """
+    cos_lat = cos(lat)
+    sin_lat = sin(lat)
+    cos_lon = cos(lon)
+    sin_lon = sin(lon)
+
+    x = -u * sin_lon - v * sin_lat * cos_lon
+    y = u * cos_lon - v * sin_lat * sin_lon
+    z = cos_lat * v
+
+    norm = norm2_on_vertices(x, y, z)
+    return x / norm, y / norm, z / norm
+
+
+# TODO(msimberg): Constant fields...
+@gtx.field_operator(grid_type=gtx.GridType.UNSTRUCTURED)
+def cartesian_coordinates_from_zonal_and_meridional_components_on_cells_torus(
+    lat: fa.CellField[ta.wpfloat],
+    lon: fa.CellField[ta.wpfloat],
+    u: ta.wpfloat,
+    v: ta.wpfloat,
+) -> tuple[fa.CellField[ta.wpfloat], fa.CellField[ta.wpfloat], fa.CellField[ta.wpfloat]]:
+    """
+    Compute cartesian coordinates from zonal an meridional components at position (lat, lon)
+    Args:
+        lat: latitude
+        lon: longitude
+        u: zonal component
+        v: meridional component
+
+    Returns:
+        x, y, z cartesian components
+
+    """
+    x = lat * 0.0 + u
+    y = lat * 0.0 + v
+    z = lat * 0.0
+    return x, y, z
+
+
+# TODO(msimberg): Constant fields...
+@gtx.field_operator(grid_type=gtx.GridType.UNSTRUCTURED)
+def cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_torus(
+    lat: fa.VertexField[ta.wpfloat],
+    lon: fa.VertexField[ta.wpfloat],
+    u: ta.wpfloat,
+    v: ta.wpfloat,
+) -> tuple[fa.VertexField[ta.wpfloat], fa.VertexField[ta.wpfloat], fa.VertexField[ta.wpfloat]]:
+    """
+    Compute cartesian coordinates from zonal an meridional components at position (lat, lon)
+    Args:
+        lat: latitude
+        lon: longitude
+        u: zonal component
+        v: meridional component
+
+    Returns:
+        x, y, z cartesian components
+
+    """
+    x = lat * 0.0 + u
+    y = lat * 0.0 + v
+    z = lat * 0.0
+    return x, y, z
+
+
 @gtx.program(grid_type=gtx.GridType.UNSTRUCTURED)
 def compute_cartesian_coordinates_from_zonal_and_meridional_components_on_edges(
     edge_lat: fa.EdgeField[ta.wpfloat],
@@ -463,6 +611,171 @@ def compute_cartesian_coordinates_from_zonal_and_meridional_components_on_edges(
         v,
         out=(x, y, z),
         domain={dims.EdgeDim: (horizontal_start, horizontal_end)},
+    )
+
+
+# TODO(msimberg): name
+@gtx.program(grid_type=gtx.GridType.UNSTRUCTURED)
+def compute_cartesian_coordinates_from_zonal_and_meridional_components_on_edges_2(
+    edge_lat: fa.EdgeField[ta.wpfloat],
+    edge_lon: fa.EdgeField[ta.wpfloat],
+    u_x: fa.EdgeField[ta.wpfloat],
+    u_y: fa.EdgeField[ta.wpfloat],
+    u_z: fa.EdgeField[ta.wpfloat],
+    v_x: fa.EdgeField[ta.wpfloat],
+    v_y: fa.EdgeField[ta.wpfloat],
+    v_z: fa.EdgeField[ta.wpfloat],
+    horizontal_start: gtx.int32,
+    horizontal_end: gtx.int32,
+):
+    # TODO(msimberg): Constant fields?
+    cartesian_coordinates_from_zonal_and_meridional_components_on_edges_2(
+        edge_lat,
+        edge_lon,
+        1.0,
+        0.0,
+        out=(u_x, u_y, u_z),
+        domain={dims.EdgeDim: (horizontal_start, horizontal_end)},
+    )
+    cartesian_coordinates_from_zonal_and_meridional_components_on_edges_2(
+        edge_lat,
+        edge_lon,
+        0.0,
+        1.0,
+        out=(v_x, v_y, v_z),
+        domain={dims.EdgeDim: (horizontal_start, horizontal_end)},
+    )
+
+
+# TODO(msimberg): name
+@gtx.program(grid_type=gtx.GridType.UNSTRUCTURED)
+def compute_cartesian_coordinates_from_zonal_and_meridional_components_on_cells_2(
+    cell_lat: fa.CellField[ta.wpfloat],
+    cell_lon: fa.CellField[ta.wpfloat],
+    u_x: fa.CellField[ta.wpfloat],
+    u_y: fa.CellField[ta.wpfloat],
+    u_z: fa.CellField[ta.wpfloat],
+    v_x: fa.CellField[ta.wpfloat],
+    v_y: fa.CellField[ta.wpfloat],
+    v_z: fa.CellField[ta.wpfloat],
+    horizontal_start: gtx.int32,
+    horizontal_end: gtx.int32,
+):
+    # TODO(msimberg): Constant fields?
+    cartesian_coordinates_from_zonal_and_meridional_components_on_cells_2(
+        cell_lat,
+        cell_lon,
+        1.0,
+        0.0,
+        out=(u_x, u_y, u_z),
+        domain={dims.CellDim: (horizontal_start, horizontal_end)},
+    )
+    cartesian_coordinates_from_zonal_and_meridional_components_on_cells_2(
+        cell_lat,
+        cell_lon,
+        0.0,
+        1.0,
+        out=(v_x, v_y, v_z),
+        domain={dims.CellDim: (horizontal_start, horizontal_end)},
+    )
+
+
+# TODO(msimberg): name
+@gtx.program(grid_type=gtx.GridType.UNSTRUCTURED)
+def compute_cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_2(
+    vertex_lat: fa.VertexField[ta.wpfloat],
+    vertex_lon: fa.VertexField[ta.wpfloat],
+    u_x: fa.VertexField[ta.wpfloat],
+    u_y: fa.VertexField[ta.wpfloat],
+    u_z: fa.VertexField[ta.wpfloat],
+    v_x: fa.VertexField[ta.wpfloat],
+    v_y: fa.VertexField[ta.wpfloat],
+    v_z: fa.VertexField[ta.wpfloat],
+    horizontal_start: gtx.int32,
+    horizontal_end: gtx.int32,
+):
+    # TODO(msimberg): Constant fields?
+    cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_2(
+        vertex_lat,
+        vertex_lon,
+        1.0,
+        0.0,
+        out=(u_x, u_y, u_z),
+        domain={dims.VertexDim: (horizontal_start, horizontal_end)},
+    )
+    cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_2(
+        vertex_lat,
+        vertex_lon,
+        0.0,
+        1.0,
+        out=(v_x, v_y, v_z),
+        domain={dims.VertexDim: (horizontal_start, horizontal_end)},
+    )
+
+
+# TODO(msimberg): name
+@gtx.program(grid_type=gtx.GridType.UNSTRUCTURED)
+def compute_cartesian_coordinates_from_zonal_and_meridional_components_on_cells_torus(
+    cell_x: fa.CellField[ta.wpfloat],
+    cell_y: fa.CellField[ta.wpfloat],
+    u_x: fa.CellField[ta.wpfloat],
+    u_y: fa.CellField[ta.wpfloat],
+    u_z: fa.CellField[ta.wpfloat],
+    v_x: fa.CellField[ta.wpfloat],
+    v_y: fa.CellField[ta.wpfloat],
+    v_z: fa.CellField[ta.wpfloat],
+    horizontal_start: gtx.int32,
+    horizontal_end: gtx.int32,
+):
+    # TODO(msimberg): Constant fields?
+    cartesian_coordinates_from_zonal_and_meridional_components_on_cells_torus(
+        cell_x,  # These are ignored
+        cell_y,  # These are ignored
+        1.0,
+        0.0,
+        out=(u_x, u_y, u_z),
+        domain={dims.CellDim: (horizontal_start, horizontal_end)},
+    )
+    cartesian_coordinates_from_zonal_and_meridional_components_on_cells_torus(
+        cell_x,  # These are ignored
+        cell_y,  # These are ignored
+        0.0,
+        1.0,
+        out=(v_x, v_y, v_z),
+        domain={dims.CellDim: (horizontal_start, horizontal_end)},
+    )
+
+
+# TODO(msimberg): name
+@gtx.program(grid_type=gtx.GridType.UNSTRUCTURED)
+def compute_cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_torus(
+    vertex_x: fa.VertexField[ta.wpfloat],
+    vertex_y: fa.VertexField[ta.wpfloat],
+    u_x: fa.VertexField[ta.wpfloat],
+    u_y: fa.VertexField[ta.wpfloat],
+    u_z: fa.VertexField[ta.wpfloat],
+    v_x: fa.VertexField[ta.wpfloat],
+    v_y: fa.VertexField[ta.wpfloat],
+    v_z: fa.VertexField[ta.wpfloat],
+    horizontal_start: gtx.int32,
+    horizontal_end: gtx.int32,
+):
+    # TODO(msimberg): Constant fields?
+    cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_torus(
+        vertex_x,  # These are ignored
+        vertex_y,  # These are ignored
+        1.0,
+        0.0,
+        out=(u_x, u_y, u_z),
+        domain={dims.VertexDim: (horizontal_start, horizontal_end)},
+    )
+    cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_torus(
+        vertex_x,  # These are ignored
+        vertex_y,  # These are ignored
+        0.0,
+        1.0,
+        out=(v_x, v_y, v_z),
+        domain={dims.VertexDim: (horizontal_start, horizontal_end)},
     )
 
 

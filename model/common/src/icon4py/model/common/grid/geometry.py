@@ -100,7 +100,9 @@ class GridGeometry(factory.FieldSource):
         self._decomposition_info = decomposition_info
         self._attrs = metadata
         self._geometry_type: base.GeometryType = grid.global_properties.geometry_type
+        self._cell_domain = h_grid.domain(dims.CellDim)
         self._edge_domain = h_grid.domain(dims.EdgeDim)
+        self._vertex_domain = h_grid.domain(dims.VertexDim)
         log.info(
             f"initialized geometry for backend = '{self._backend_name()}' and grid = '{self._grid}'"
         )
@@ -569,6 +571,58 @@ class IcosahedronGridGeometry(GridGeometry):
         )
         self.register_provider(cartesian_cell_centers)
 
+        # Projections of cartesian coordinates onto the zonal and meridional directions
+        cartesian_cell_centers_zm = factory.ProgramFieldProvider(
+            func=math_helpers.compute_cartesian_coordinates_from_zonal_and_meridional_components_on_cells_2.with_backend(
+                self.backend
+            ),
+            deps={
+                "cell_lat": attrs.CELL_LAT,
+                "cell_lon": attrs.CELL_LON,
+            },
+            fields={
+                # TODO(msimberg): Are these correct names??
+                # They're the zonal/meridional cartesian vectors at the cell centers.
+                "u_x": attrs.CELL_CENTER_U_X,
+                "u_y": attrs.CELL_CENTER_U_Y,
+                "u_z": attrs.CELL_CENTER_U_Z,
+                "v_x": attrs.CELL_CENTER_V_X,
+                "v_y": attrs.CELL_CENTER_V_Y,
+                "v_z": attrs.CELL_CENTER_V_Z,
+            },
+            domain={
+                dims.CellDim: (
+                    self._cell_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2),
+                    self._cell_domain(h_grid.Zone.END),
+                )
+            },
+        )
+        self.register_provider(cartesian_cell_centers_zm)
+        cartesian_vertex_zm = factory.ProgramFieldProvider(
+            func=math_helpers.compute_cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_2.with_backend(
+                self.backend
+            ),
+            deps={
+                "vertex_lat": attrs.VERTEX_LAT,
+                "vertex_lon": attrs.VERTEX_LON,
+            },
+            fields={
+                "u_x": attrs.VERTEX_U_X,
+                "u_y": attrs.VERTEX_U_Y,
+                "u_z": attrs.VERTEX_U_Z,
+                "v_x": attrs.VERTEX_V_X,
+                "v_y": attrs.VERTEX_V_Y,
+                "v_z": attrs.VERTEX_V_Z,
+            },
+            domain={
+                dims.VertexDim: (
+                    self._vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2),
+                    self._vertex_domain(h_grid.Zone.END),
+                )
+            },
+        )
+        self.register_provider(cartesian_vertex_zm)
+
 
 class TorusGridGeometry(GridGeometry):
     def __init__(
@@ -885,6 +939,56 @@ class TorusGridGeometry(GridGeometry):
             pairs=(("u_cell_1", "u_cell_2"), ("v_cell_1", "v_cell_2")),
         )
         self.register_provider(tangent_cell_wrapper)
+
+        # Projections of cartesian coordinates onto the zonal and meridional directions
+        cartesian_cell_centers_zm = factory.ProgramFieldProvider(
+            func=math_helpers.compute_cartesian_coordinates_from_zonal_and_meridional_components_on_cells_torus.with_backend(
+                self.backend
+            ),
+            deps={
+                "cell_x": attrs.CELL_CENTER_X,
+                "cell_y": attrs.CELL_CENTER_Y,
+            },
+            fields={
+                "u_x": attrs.CELL_CENTER_U_X,
+                "u_y": attrs.CELL_CENTER_U_Y,
+                "u_z": attrs.CELL_CENTER_U_Z,
+                "v_x": attrs.CELL_CENTER_V_X,
+                "v_y": attrs.CELL_CENTER_V_Y,
+                "v_z": attrs.CELL_CENTER_V_Z,
+            },
+            domain={
+                dims.CellDim: (
+                    self._cell_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2),
+                    self._cell_domain(h_grid.Zone.END),
+                )
+            },
+        )
+        self.register_provider(cartesian_cell_centers_zm)
+        cartesian_vertex_zm = factory.ProgramFieldProvider(
+            func=math_helpers.compute_cartesian_coordinates_from_zonal_and_meridional_components_on_vertices_torus.with_backend(
+                self.backend
+            ),
+            deps={
+                "vertex_x": attrs.VERTEX_X,
+                "vertex_y": attrs.VERTEX_Y,
+            },
+            fields={
+                "u_x": attrs.VERTEX_U_X,
+                "u_y": attrs.VERTEX_U_Y,
+                "u_z": attrs.VERTEX_U_Z,
+                "v_x": attrs.VERTEX_V_X,
+                "v_y": attrs.VERTEX_V_Y,
+                "v_z": attrs.VERTEX_V_Z,
+            },
+            domain={
+                dims.VertexDim: (
+                    self._vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2),
+                    self._vertex_domain(h_grid.Zone.END),
+                )
+            },
+        )
+        self.register_provider(cartesian_vertex_zm)
 
 
 HorizontalD = TypeVar("HorizontalD", bound=gtx.Dimension)

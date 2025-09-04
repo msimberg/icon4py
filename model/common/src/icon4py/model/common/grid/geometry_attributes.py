@@ -27,12 +27,24 @@ VERTEX_LAT: Final[str] = "grid_latitude_of_vertex"
 VERTEX_X: Final[str] = "x_component_of_vertex"
 VERTEX_Y: Final[str] = "y_component_of_vertex"
 VERTEX_Z: Final[str] = "z_component_of_vertex"
+VERTEX_U_X: Final[str] = "x_coordinate_of_vertex_in_meridional_direction"
+VERTEX_U_Y: Final[str] = "y_coordinate_of_vertex_in_meridional_direction"
+VERTEX_U_Z: Final[str] = "z_coordinate_of_vertex_in_meridional_direction"
+VERTEX_V_X: Final[str] = "x_coordinate_of_vertex_in_zonal_direction"
+VERTEX_V_Y: Final[str] = "y_coordinate_of_vertex_in_zonal_direction"
+VERTEX_V_Z: Final[str] = "z_coordinate_of_vertex_in_zonal_direction"
 
 CELL_LON: Final[str] = "grid_longitude_of_cell_center"
 CELL_LAT: Final[str] = "grid_latitude_of_cell_center"
 CELL_CENTER_X: Final[str] = "x_component_of_cell_center"
 CELL_CENTER_Y: Final[str] = "y_component_of_cell_center"
 CELL_CENTER_Z: Final[str] = "z_component_of_cell_center"
+CELL_CENTER_U_X: Final[str] = "x_coordinate_of_cell_center_in_meridional_direction"
+CELL_CENTER_U_Y: Final[str] = "y_coordinate_of_cell_center_in_meridional_direction"
+CELL_CENTER_U_Z: Final[str] = "z_coordinate_of_cell_center_in_meridional_direction"
+CELL_CENTER_V_X: Final[str] = "x_coordinate_of_cell_center_in_zonal_direction"
+CELL_CENTER_V_Y: Final[str] = "y_coordinate_of_cell_center_in_zonal_direction"
+CELL_CENTER_V_Z: Final[str] = "z_coordinate_of_cell_center_in_zonal_direction"
 
 CELL_AREA: Final[str] = "cell_area"
 EDGE_AREA: Final[str] = "edge_area"
@@ -125,6 +137,54 @@ attrs: dict[str, model.FieldMetaData] = {
         units="1",
         dims=(dims.VertexDim,),
         icon_var_name="t_grid_vertices%vertex%x(3)",
+        dtype=ta.wpfloat,
+    ),
+    VERTEX_U_X: dict(
+        standard_name=VERTEX_U_X,
+        long_name="x component of cartesian coordinates of vertex in meridional direction",
+        units="1",
+        dims=(dims.VertexDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    VERTEX_U_Y: dict(
+        standard_name=VERTEX_U_Y,
+        long_name="y component of cartesian coordinates of vertex in meridional direction",
+        units="1",
+        dims=(dims.VertexDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    VERTEX_U_Z: dict(
+        standard_name=VERTEX_U_Z,
+        long_name="z component of cartesian coordinates of vertex in meridional direction",
+        units="1",
+        dims=(dims.VertexDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    VERTEX_V_X: dict(
+        standard_name=VERTEX_V_X,
+        long_name="x component of cartesian coordinates of vertex in zonal direction",
+        units="1",
+        dims=(dims.VertexDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    VERTEX_V_Y: dict(
+        standard_name=VERTEX_V_Y,
+        long_name="y component of cartesian coordinates of vertex in zonal direction",
+        units="1",
+        dims=(dims.VertexDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    VERTEX_V_Z: dict(
+        standard_name=VERTEX_V_Z,
+        long_name="z component of cartesian coordinates of vertex in zonal direction",
+        units="1",
+        dims=(dims.VertexDim,),
+        icon_var_name="TODO",
         dtype=ta.wpfloat,
     ),
     EDGE_LAT: dict(
@@ -226,6 +286,54 @@ attrs: dict[str, model.FieldMetaData] = {
         units="",
         dims=(dims.CellDim,),
         icon_var_name="t_grid_cells%%cartesian_center%x(3)",
+        dtype=ta.wpfloat,
+    ),
+    CELL_CENTER_U_X: dict(
+        standard_name=CELL_CENTER_U_X,
+        long_name="x component of cartesian coordinates of cell center in meridional direction",
+        units="",
+        dims=(dims.CellDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    CELL_CENTER_U_Y: dict(
+        standard_name=CELL_CENTER_U_Y,
+        long_name="y component of cartesian coordinates of cell center in meridional direction",
+        units="",
+        dims=(dims.CellDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    CELL_CENTER_U_Z: dict(
+        standard_name=CELL_CENTER_U_Z,
+        long_name="z component of cartesian coordinates of cell center in meridional direction",
+        units="",
+        dims=(dims.CellDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    CELL_CENTER_V_X: dict(
+        standard_name=CELL_CENTER_V_X,
+        long_name="x component of cartesian coordinates of cell center in zonal direction",
+        units="",
+        dims=(dims.CellDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    CELL_CENTER_V_Y: dict(
+        standard_name=CELL_CENTER_V_Y,
+        long_name="y component of cartesian coordinates of cell center in zonal direction",
+        units="",
+        dims=(dims.CellDim,),
+        icon_var_name="TODO",
+        dtype=ta.wpfloat,
+    ),
+    CELL_CENTER_V_Z: dict(
+        standard_name=CELL_CENTER_V_Z,
+        long_name="z component of cartesian coordinates of cell center in zonal direction",
+        units="",
+        dims=(dims.CellDim,),
+        icon_var_name="TODO",
         dtype=ta.wpfloat,
     ),
     DUAL_AREA: dict(
