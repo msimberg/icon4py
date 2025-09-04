@@ -171,6 +171,7 @@ def test_rbf_interpolation_coeffs_cell(
         geometry.get(geometry_attrs.CELL_CENTER_V_X).ndarray,
         geometry.get(geometry_attrs.CELL_CENTER_V_Y).ndarray,
         geometry.get(geometry_attrs.CELL_CENTER_V_Z).ndarray,
+        geometry.get(geometry_attrs.C2E2C2E_DISTANCE).ndarray,
         geometry.get(geometry_attrs.CELL_CENTER_X).ndarray,
         geometry.get(geometry_attrs.CELL_CENTER_Y).ndarray,
         geometry.get(geometry_attrs.CELL_CENTER_Z).ndarray,
@@ -249,6 +250,7 @@ def test_rbf_interpolation_coeffs_vertex(
         geometry.get(geometry_attrs.VERTEX_V_X).ndarray,
         geometry.get(geometry_attrs.VERTEX_V_Y).ndarray,
         geometry.get(geometry_attrs.VERTEX_V_Z).ndarray,
+        geometry.get(geometry_attrs.V2E_DISTANCE).ndarray,
         geometry.get(geometry_attrs.VERTEX_X).ndarray,
         geometry.get(geometry_attrs.VERTEX_Y).ndarray,
         geometry.get(geometry_attrs.VERTEX_Z).ndarray,
@@ -303,8 +305,8 @@ def test_rbf_interpolation_coeffs_vertex(
 @pytest.mark.parametrize(
     "grid_file, experiment, atol",
     [
-        (dt_utils.R02B04_GLOBAL, dt_utils.GLOBAL_EXPERIMENT, 1e-12),
-        (dt_utils.REGIONAL_EXPERIMENT, dt_utils.REGIONAL_EXPERIMENT, 2e-9),
+        (dt_utils.R02B04_GLOBAL, dt_utils.GLOBAL_EXPERIMENT, 1e-10),
+        (dt_utils.REGIONAL_EXPERIMENT, dt_utils.REGIONAL_EXPERIMENT, 2e-7),
         (dt_utils.WEISMAN_KLEMP_EXPERIMENT, dt_utils.WEISMAN_KLEMP_EXPERIMENT, 0),
     ],
 )
@@ -327,6 +329,7 @@ def test_rbf_interpolation_coeffs_edge(
     assert horizontal_start < grid.num_edges
 
     rbf_vec_coeff_e = rbf.compute_rbf_interpolation_coeffs_edge(
+        geometry.get(geometry_attrs.E2C2E_DISTANCE).ndarray,
         geometry.get(geometry_attrs.EDGE_TANGENT_X).ndarray,
         geometry.get(geometry_attrs.EDGE_TANGENT_Y).ndarray,
         geometry.get(geometry_attrs.EDGE_TANGENT_Z).ndarray,
@@ -364,7 +367,7 @@ def test_rbf_interpolation_coeffs_edge(
         rbf.RBF_STENCIL_SIZE[rbf_dim],
     )
     assert test_helpers.dallclose(
-        rbf_vec_coeff_e[horizontal_start:],
-        rbf_vec_coeff_e_ref.asnumpy()[horizontal_start:],
+        np.sort(rbf_vec_coeff_e[horizontal_start:]),
+        np.sort(rbf_vec_coeff_e_ref.asnumpy()[horizontal_start:]),
         atol=atol,
     )

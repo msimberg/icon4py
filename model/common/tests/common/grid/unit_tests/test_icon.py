@@ -258,7 +258,7 @@ def test_global_grid_params(
             if grid_root is not None
             else None,
         ),
-        num_cells=num_cells,
+        global_num_cells=num_cells,  # TODO(msimberg): Set both global and local?
         mean_cell_area=mean_cell_area,
     )
     assert geometry_type == params.geometry_type
@@ -379,6 +379,6 @@ def test_global_grid_params_from_grid_manager(
     assert params.num_cells == num_cells
     # Depending on which method is used to calculate the mean cell area, the
     # result may be slightly different. Allow a bit of tolerance.
-    # TODO: How much to allow? Or just use exact values based on current
+    # TODO(msimberg): How much to allow? Or just use exact values based on current
     # implementation and update if implementation changes?
     assert np.isclose(params.mean_cell_area, mean_cell_area, rtol=5e-2)

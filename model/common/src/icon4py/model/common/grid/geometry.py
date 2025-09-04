@@ -30,6 +30,7 @@ from icon4py.model.common.grid import (
     horizontal as h_grid,
     icon,
 )
+from icon4py.model.common.interpolation import rbf_interpolation as rbf
 from icon4py.model.common.states import factory, model, utils as state_utils
 from icon4py.model.common.utils import data_allocation as data_alloc, device_utils
 
@@ -95,6 +96,7 @@ class GridGeometry(factory.FieldSource):
         """
         self._providers = {}
         self._backend = backend
+        self._xp = data_alloc.import_array_ns(backend)
         self._allocator = gtx.constructors.zeros.partial(allocator=backend)
         self._grid = grid
         self._decomposition_info = decomposition_info
@@ -623,6 +625,90 @@ class IcosahedronGridGeometry(GridGeometry):
         )
         self.register_provider(cartesian_vertex_zm)
 
+        # Cell/Vertex/Edge distances to neighoring edges for RBF interpolation
+        c2e2c2e_distance = factory.NumpyFieldsProvider(
+            func=functools.partial(
+                # TODO(): Different module.
+                rbf.compute_c2e2c2e_distance,
+                array_ns=self._xp,
+            ),
+            domain=(dims.CellDim, dims.C2E2C2EDim),
+            fields=(attrs.C2E2C2E_DISTANCE,),
+            deps={
+                "cell_center_x": attrs.CELL_CENTER_X,
+                "cell_center_y": attrs.CELL_CENTER_Y,
+                "cell_center_z": attrs.CELL_CENTER_Z,
+                "edge_center_x": attrs.EDGE_CENTER_X,
+                "edge_center_y": attrs.EDGE_CENTER_Y,
+                "edge_center_z": attrs.EDGE_CENTER_Z,
+            },
+            connectivities={"c2e2c2e": dims.C2E2C2EDim},
+            params={
+                "horizontal_start": self._grid.start_index(
+                    self._cell_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
+                ),
+                "geometry_type": self._grid.global_properties.geometry_type.value,
+                "domain_length": self._grid.global_properties.domain_length
+                if self._grid.global_properties.domain_length
+                else -1.0,
+                "domain_height": self._grid.global_properties.domain_height
+                if self._grid.global_properties.domain_height
+                else -1.0,
+            },
+        )
+        self.register_provider(c2e2c2e_distance)
+        e2c2e_distance = factory.NumpyFieldsProvider(
+            func=functools.partial(rbf.compute_e2c2e_distance, array_ns=self._xp),
+            domain=(dims.EdgeDim, dims.E2C2EDim),
+            fields=(attrs.E2C2E_DISTANCE,),
+            deps={
+                "edge_center_x": attrs.EDGE_CENTER_X,
+                "edge_center_y": attrs.EDGE_CENTER_Y,
+                "edge_center_z": attrs.EDGE_CENTER_Z,
+            },
+            connectivities={"e2c2e": dims.E2C2EDim},
+            params={
+                "horizontal_start": self._grid.start_index(
+                    self._edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
+                ),
+                "geometry_type": self._grid.global_properties.geometry_type.value,
+                "domain_length": self._grid.global_properties.domain_length
+                if self._grid.global_properties.domain_length
+                else -1.0,
+                "domain_height": self._grid.global_properties.domain_height
+                if self._grid.global_properties.domain_height
+                else -1.0,
+            },
+        )
+        self.register_provider(e2c2e_distance)
+        v2e_distance = factory.NumpyFieldsProvider(
+            func=functools.partial(rbf.compute_v2e_distance, array_ns=self._xp),
+            domain=(dims.VertexDim, dims.V2EDim),
+            fields=(attrs.V2E_DISTANCE,),
+            deps={
+                "vertex_x": attrs.VERTEX_X,
+                "vertex_y": attrs.VERTEX_Y,
+                "vertex_z": attrs.VERTEX_Z,
+                "edge_center_x": attrs.EDGE_CENTER_X,
+                "edge_center_y": attrs.EDGE_CENTER_Y,
+                "edge_center_z": attrs.EDGE_CENTER_Z,
+            },
+            connectivities={"v2e": dims.V2EDim},
+            params={
+                "horizontal_start": self._grid.start_index(
+                    self._vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
+                ),
+                "geometry_type": self._grid.global_properties.geometry_type.value,
+                "domain_length": self._grid.global_properties.domain_length
+                if self._grid.global_properties.domain_length
+                else -1.0,
+                "domain_height": self._grid.global_properties.domain_height
+                if self._grid.global_properties.domain_height
+                else -1.0,
+            },
+        )
+        self.register_provider(v2e_distance)
+
 
 class TorusGridGeometry(GridGeometry):
     def __init__(
@@ -989,6 +1075,86 @@ class TorusGridGeometry(GridGeometry):
             },
         )
         self.register_provider(cartesian_vertex_zm)
+
+        # Cell/Vertex/Edge distances to neighoring edges for RBF interpolation
+        c2e2c2e_distance = factory.NumpyFieldsProvider(
+            func=functools.partial(
+                # TODO(): Different module.
+                rbf.compute_c2e2c2e_distance,
+                array_ns=self._xp,
+            ),
+            domain=(dims.CellDim, dims.C2E2C2EDim),
+            fields=(attrs.C2E2C2E_DISTANCE,),
+            deps={
+                "cell_center_x": attrs.CELL_CENTER_X,
+                "cell_center_y": attrs.CELL_CENTER_Y,
+                "cell_center_z": attrs.CELL_CENTER_Z,
+                "edge_center_x": attrs.EDGE_CENTER_X,
+                "edge_center_y": attrs.EDGE_CENTER_Y,
+                "edge_center_z": attrs.EDGE_CENTER_Z,
+            },
+            connectivities={"c2e2c2e": dims.C2E2C2EDim},
+            params={
+                "horizontal_start": self._grid.start_index(
+                    self._cell_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
+                ),
+                "geometry_type": self._grid.global_properties.geometry_type.value,
+                "domain_length": self._grid.global_properties.domain_length,
+                "domain_height": self._grid.global_properties.domain_height,
+            },
+        )
+        self.register_provider(c2e2c2e_distance)
+        v2e_distance = factory.NumpyFieldsProvider(
+            func=functools.partial(
+                # TODO(): Different module.
+                rbf.compute_v2e_distance,
+                array_ns=self._xp,
+            ),
+            domain=(dims.VertexDim, dims.V2EDim),
+            fields=(attrs.V2E_DISTANCE,),
+            deps={
+                "vertex_x": attrs.VERTEX_X,
+                "vertex_y": attrs.VERTEX_Y,
+                "vertex_z": attrs.VERTEX_Z,
+                "edge_center_x": attrs.EDGE_CENTER_X,
+                "edge_center_y": attrs.EDGE_CENTER_Y,
+                "edge_center_z": attrs.EDGE_CENTER_Z,
+            },
+            connectivities={"v2e": dims.V2EDim},
+            params={
+                "horizontal_start": self._grid.start_index(
+                    self._vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
+                ),
+                "geometry_type": self._grid.global_properties.geometry_type.value,
+                "domain_length": self._grid.global_properties.domain_length,
+                "domain_height": self._grid.global_properties.domain_height,
+            },
+        )
+        self.register_provider(v2e_distance)
+        e2c2e_distance = factory.NumpyFieldsProvider(
+            func=functools.partial(
+                # TODO(): Different module.
+                rbf.compute_e2c2e_distance,
+                array_ns=self._xp,
+            ),
+            domain=(dims.EdgeDim, dims.E2C2EDim),
+            fields=(attrs.E2C2E_DISTANCE,),
+            deps={
+                "edge_center_x": attrs.EDGE_CENTER_X,
+                "edge_center_y": attrs.EDGE_CENTER_Y,
+                "edge_center_z": attrs.EDGE_CENTER_Z,
+            },
+            connectivities={"e2c2e": dims.E2C2EDim},
+            params={
+                "horizontal_start": self._grid.start_index(
+                    self._edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
+                ),
+                "geometry_type": self._grid.global_properties.geometry_type.value,
+                "domain_length": self._grid.global_properties.domain_length,
+                "domain_height": self._grid.global_properties.domain_height,
+            },
+        )
+        self.register_provider(e2c2e_distance)
 
 
 HorizontalD = TypeVar("HorizontalD", bound=gtx.Dimension)

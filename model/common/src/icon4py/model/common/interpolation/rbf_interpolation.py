@@ -214,6 +214,120 @@ def _arc_length_vector_matrix(
             raise ValueError(f"Unsupported geometry type: {geometry_type}")
 
 
+def compute_c2e2c2e_distance(
+    geometry_type: int,
+    domain_length: ta.wpfloat,
+    domain_height: ta.wpfloat,
+    c2e2c2e: data_alloc.NDArray,
+    cell_center_x: data_alloc.NDArray,
+    cell_center_y: data_alloc.NDArray,
+    cell_center_z: data_alloc.NDArray,
+    edge_center_x: data_alloc.NDArray,
+    edge_center_y: data_alloc.NDArray,
+    edge_center_z: data_alloc.NDArray,
+    horizontal_start: int,
+    array_ns: ModuleType = np,
+) -> data_alloc.NDArray:
+    # TODO(): Should pad up to horizontal_start
+    return _arc_length_vector_matrix(
+        geometry_type=base_grid.GeometryType(geometry_type),
+        domain_length=domain_length,
+        domain_height=domain_height,
+        v1=array_ns.stack(
+            (
+                cell_center_x[horizontal_start:],
+                cell_center_y[horizontal_start:],
+                cell_center_z[horizontal_start:],
+            ),
+            axis=-1,
+        )[:, array_ns.newaxis, :],
+        v2=array_ns.stack(
+            (
+                edge_center_x[c2e2c2e[horizontal_start:]],
+                edge_center_y[c2e2c2e[horizontal_start:]],
+                edge_center_z[c2e2c2e[horizontal_start:]],
+            ),
+            axis=-1,
+        ),
+        array_ns=array_ns,
+    )
+
+
+def compute_v2e_distance(
+    geometry_type: int,
+    domain_length: ta.wpfloat,
+    domain_height: ta.wpfloat,
+    v2e: data_alloc.NDArray,
+    vertex_x: data_alloc.NDArray,
+    vertex_y: data_alloc.NDArray,
+    vertex_z: data_alloc.NDArray,
+    edge_center_x: data_alloc.NDArray,
+    edge_center_y: data_alloc.NDArray,
+    edge_center_z: data_alloc.NDArray,
+    horizontal_start: int,
+    array_ns: ModuleType = np,
+) -> data_alloc.NDArray:
+    # TODO(): Should pad up to horizontal_start
+    return _arc_length_vector_matrix(
+        geometry_type=base_grid.GeometryType(geometry_type),
+        domain_length=domain_length,
+        domain_height=domain_height,
+        v1=array_ns.stack(
+            (
+                vertex_x[horizontal_start:],
+                vertex_y[horizontal_start:],
+                vertex_z[horizontal_start:],
+            ),
+            axis=-1,
+        )[:, array_ns.newaxis, :],
+        v2=array_ns.stack(
+            (
+                edge_center_x[v2e[horizontal_start:]],
+                edge_center_y[v2e[horizontal_start:]],
+                edge_center_z[v2e[horizontal_start:]],
+            ),
+            axis=-1,
+        ),
+        array_ns=array_ns,
+    )
+
+
+def compute_e2c2e_distance(
+    geometry_type: int,
+    domain_length: ta.wpfloat,
+    domain_height: ta.wpfloat,
+    e2c2e: data_alloc.NDArray,
+    edge_center_x: data_alloc.NDArray,
+    edge_center_y: data_alloc.NDArray,
+    edge_center_z: data_alloc.NDArray,
+    horizontal_start: int,
+    array_ns: ModuleType = np,
+) -> data_alloc.NDArray:
+    # TODO(): Should pad up to horizontal_start
+    return _arc_length_vector_matrix(
+        geometry_type=base_grid.GeometryType(geometry_type),
+        domain_length=domain_length,
+        domain_height=domain_height,
+        v1=array_ns.stack(
+            (
+                edge_center_x[horizontal_start:],
+                edge_center_y[horizontal_start:],
+                edge_center_z[horizontal_start:],
+            ),
+            axis=-1,
+        )[:, array_ns.newaxis, :],
+        v2=array_ns.stack(
+            (
+                edge_center_x[e2c2e[horizontal_start:]],
+                edge_center_y[e2c2e[horizontal_start:]],
+                edge_center_z[e2c2e[horizontal_start:]],
+            ),
+            axis=-1,
+        ),
+        array_ns=array_ns,
+    )
+
+
 def _gaussian(
     lengths: data_alloc.NDArray, scale: ta.wpfloat, array_ns: ModuleType = np
 ) -> data_alloc.NDArray:
@@ -247,6 +361,7 @@ def _kernel(
 
 def _compute_rbf_interpolation_coeffs(
     element_center_uv_xyz: list[tuple[data_alloc.NDArray, data_alloc.NDArray, data_alloc.NDArray]],
+    element_to_edge_distance: data_alloc.NDArray,
     element_center_x: data_alloc.NDArray,
     element_center_y: data_alloc.NDArray,
     element_center_z: data_alloc.NDArray,
@@ -309,14 +424,7 @@ def _compute_rbf_interpolation_coeffs(
         axis=-1,
     )
     assert element_center.shape == (rbf_offset.shape[0], 3)
-    vector_dist = _arc_length_vector_matrix(
-        geometry_type,
-        domain_length,
-        domain_height,
-        element_center[:, array_ns.newaxis, :],
-        edge_center,
-        array_ns=array_ns,
-    )
+    vector_dist = element_to_edge_distance
     assert vector_dist.shape == rbf_offset.shape
     rbf_val = _kernel(rbf_kernel, vector_dist, scale_factor, array_ns=array_ns)
     assert rbf_val.shape == rbf_offset.shape
@@ -402,6 +510,7 @@ def compute_rbf_interpolation_coeffs_cell(
     cell_center_v_x: data_alloc.NDArray,
     cell_center_v_y: data_alloc.NDArray,
     cell_center_v_z: data_alloc.NDArray,
+    c2e2c2e_distance: data_alloc.NDArray,
     cell_center_x: data_alloc.NDArray,
     cell_center_y: data_alloc.NDArray,
     cell_center_z: data_alloc.NDArray,
@@ -429,6 +538,7 @@ def compute_rbf_interpolation_coeffs_cell(
             (cell_center_u_x, cell_center_u_y, cell_center_u_z),
             (cell_center_v_x, cell_center_v_y, cell_center_v_z),
         ],
+        c2e2c2e_distance,
         cell_center_x,
         cell_center_y,
         cell_center_z,
@@ -453,6 +563,7 @@ def compute_rbf_interpolation_coeffs_cell(
 
 
 def compute_rbf_interpolation_coeffs_edge(
+    e2c2e_distance: data_alloc.NDArray,
     edge_tangent_x: data_alloc.NDArray,
     edge_tangent_y: data_alloc.NDArray,
     edge_tangent_z: data_alloc.NDArray,
@@ -477,6 +588,7 @@ def compute_rbf_interpolation_coeffs_edge(
         [
             (edge_tangent_x, edge_tangent_y, edge_tangent_z),
         ],
+        e2c2e_distance,
         edge_center_x,
         edge_center_y,
         edge_center_z,
@@ -507,6 +619,7 @@ def compute_rbf_interpolation_coeffs_vertex(
     vertex_v_x: data_alloc.NDArray,
     vertex_v_y: data_alloc.NDArray,
     vertex_v_z: data_alloc.NDArray,
+    v2e_distance: data_alloc.NDArray,
     vertex_x: data_alloc.NDArray,
     vertex_y: data_alloc.NDArray,
     vertex_z: data_alloc.NDArray,
@@ -533,6 +646,7 @@ def compute_rbf_interpolation_coeffs_vertex(
             (vertex_u_x, vertex_u_y, vertex_u_z),
             (vertex_v_x, vertex_v_y, vertex_v_z),
         ],
+        v2e_distance,
         vertex_x,
         vertex_y,
         vertex_z,
