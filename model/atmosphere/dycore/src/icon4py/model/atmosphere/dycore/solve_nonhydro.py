@@ -1090,7 +1090,7 @@ class SolveNonhydro:
             at_first_substep: first substep
             at_last_substep: last substep
         """
-        log.info(
+        log.debug(
             f"running timestep: dtime = {dtime}, initial_timestep = {at_initial_timestep}, first_substep = {at_first_substep}, last_substep = {at_last_substep}, prep_adv = {lprep_adv}"
         )
         global _viztracer_counter
@@ -1177,7 +1177,7 @@ class SolveNonhydro:
         Runs the predictor step of the non-hydrostatic solver.
         """
 
-        log.info(
+        log.debug(
             f"running predictor step: dtime = {dtime}, initial_timestep = {at_initial_timestep} at_first_substep = {at_first_substep}"
         )
 
