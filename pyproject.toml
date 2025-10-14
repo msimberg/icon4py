@@ -11,7 +11,9 @@ build = [
   "pip>=22.1.1",
   "setuptools>=70.1.1",
   "wheel>=0.45.0",
-  "wget>=3.2"
+  "wget>=3.2",
+  "viztracer",
+  "nvtx"
 ]
 dev = [
   {include-group = "build"},
