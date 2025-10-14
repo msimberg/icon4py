@@ -759,14 +759,13 @@ class Diffusion:
             smag_offset:
 
         """
-        self.scale_k(self.enh_smag_fac, dtime, self.diff_multfac_smag)
-
         log.debug("rbf interpolation 1: start")
         self.mo_intp_rbf_rbf_vec_interpol_vertex(
             p_e_in=prognostic_state.vn,
             p_u_out=self.u_vert,
             p_v_out=self.v_vert,
         )
+        self.scale_k(self.enh_smag_fac, dtime, self.diff_multfac_smag)
         log.debug("rbf interpolation 1: end")
 
         # 2.  HALO EXCHANGE -- CALL sync_patch_array_mult u_vert and v_vert
