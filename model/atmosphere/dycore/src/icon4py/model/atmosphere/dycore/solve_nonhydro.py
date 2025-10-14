@@ -14,6 +14,7 @@ from typing import Final
 import gt4py.next as gtx
 import gt4py.next.typing as gtx_typing
 from gt4py.next import allocators as gtx_allocators
+from viztracer import VizTracer
 
 import icon4py.model.atmosphere.dycore.solve_nonhydro_stencils as nhsolve_stencils
 import icon4py.model.common.grid.states as grid_states
@@ -345,6 +346,13 @@ class NonHydrostaticParams:
         """
         Declared as wgt_nnow_rth in ICON.
         """
+
+
+_viztracer_counter = int(0)
+_viztracer_procid = int(os.getenv("SLURM_PROCID", -1))
+_viztracer_jobid = int(os.getenv("SLURM_JOBID", -1))
+_viztracer_stepid = int(os.getenv("SLURM_STEPID", -1))
+_viztracer_enable = bool(os.getenv("ICON4PY_ENABLE_VIZTRACER_SOLVE_NONHYDRO", 0)) and _viztracer_procid == 0
 
 
 class SolveNonhydro:
@@ -1033,6 +1041,15 @@ class SolveNonhydro:
         log.info(
             f"running timestep: dtime = {dtime}, initial_timestep = {at_initial_timestep}, first_substep = {at_first_substep}, last_substep = {at_last_substep}, prep_adv = {lprep_adv}"
         )
+        global _viztracer_counter
+        global _viztracer_procid
+        global _viztracer_jobid
+        global _viztracer_stepid
+        global _viztracer_enable
+
+        if _viztracer_enable and _viztracer_counter == 100:
+            tracer = VizTracer()
+            tracer.start()
 
         if self.p_test_run:
             self._init_test_fields(
@@ -1085,6 +1102,14 @@ class SolveNonhydro:
             rho_new=prognostic_states.next.rho,
             theta_v_new=prognostic_states.next.theta_v,
         )
+
+        if _viztracer_enable:
+            if _viztracer_counter == 100:
+                tracer.stop()
+                output_file= f"viztracer-mch_icon-ch1_medium_stencils-{_viztracer_jobid}.{_viztracer_stepid}-{_viztracer_procid}.json"
+                log.info(f"writing viztracer file {output_file}")
+                tracer.save(output_file=output_file)
+            _viztracer_counter += 1
 
     # flake8: noqa: C901
     def run_predictor_step(
