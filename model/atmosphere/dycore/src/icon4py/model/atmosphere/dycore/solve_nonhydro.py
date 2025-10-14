@@ -372,8 +372,10 @@ class SolveNonhydro:
         | model_backends.BackendDescriptor
         | None,
         exchange: decomposition.ExchangeRuntime = decomposition.SingleNodeExchange(),
+        exchange2: decomposition.ExchangeRuntime = decomposition.SingleNodeExchange(),
     ):
         self._exchange = exchange
+        self._exchange2 = exchange2
 
         self._grid = grid
         self._config = config
@@ -500,7 +502,7 @@ class SolveNonhydro:
             offset_provider=self._grid.connectivities,
         )
 
-        self._apply_divergence_damping_and_update_vn = setup_program(
+        self._apply_divergence_damping_and_update_vn_first_half = setup_program(
             backend=backend,
             program=compute_edge_diagnostics_for_dycore_and_update_vn.apply_divergence_damping_and_update_vn,
             constant_args={
@@ -525,6 +527,35 @@ class SolveNonhydro:
             },
             vertical_sizes={
                 "vertical_start": gtx.int32(0),
+                "vertical_end": gtx.int32(self._grid.num_levels // 2),
+            },
+            offset_provider=self._grid.connectivities,
+        )
+        self._apply_divergence_damping_and_update_vn_second_half = setup_program(
+            backend=backend,
+            program=compute_edge_diagnostics_for_dycore_and_update_vn.apply_divergence_damping_and_update_vn,
+            constant_args={
+                "horizontal_mask_for_3d_divdamp": self._metric_state_nonhydro.horizontal_mask_for_3d_divdamp,
+                "scaling_factor_for_3d_divdamp": self._metric_state_nonhydro.scaling_factor_for_3d_divdamp,
+                "inv_dual_edge_length": self._edge_geometry.inverse_dual_edge_lengths,
+                "nudgecoeff_e": self._interpolation_state.nudgecoeff_e,
+                "geofac_grdiv": self._interpolation_state.geofac_grdiv,
+                "advection_explicit_weight_parameter": self._params.advection_explicit_weight_parameter,
+                "advection_implicit_weight_parameter": self._params.advection_implicit_weight_parameter,
+                "iau_wgt_dyn": self._config.iau_wgt_dyn,
+                "is_iau_active": self._config.is_iau_active,
+                "limited_area": self._grid.limited_area,
+            },
+            variants={
+                "apply_2nd_order_divergence_damping": [False, True],
+                "apply_4th_order_divergence_damping": [False, True],
+            },
+            horizontal_sizes={
+                "horizontal_start": gtx.int32(self._start_edge_nudging_level_2),
+                "horizontal_end": self._end_edge_local,
+            },
+            vertical_sizes={
+                "vertical_start": gtx.int32(self._grid.num_levels // 2),
                 "vertical_end": gtx.int32(self._grid.num_levels),
             },
             offset_provider=self._grid.connectivities,
@@ -555,7 +586,7 @@ class SolveNonhydro:
             offset_provider=self._grid.connectivities,
         )
 
-        self._compute_averaged_vn_and_fluxes_and_prepare_tracer_advection = setup_program(
+        self._compute_averaged_vn_and_fluxes_and_prepare_tracer_advection_first_half = setup_program(
             backend=backend,
             program=compute_averaged_vn_and_fluxes_and_prepare_tracer_advection,
             constant_args={
@@ -572,6 +603,27 @@ class SolveNonhydro:
             },
             vertical_sizes={
                 "vertical_start": gtx.int32(0),
+                "vertical_end": gtx.int32(self._grid.num_levels // 2),
+            },
+            offset_provider=self._grid.connectivities,
+        )
+        self._compute_averaged_vn_and_fluxes_and_prepare_tracer_advection_second_half = setup_program(
+            backend=backend,
+            program=compute_averaged_vn_and_fluxes_and_prepare_tracer_advection,
+            constant_args={
+                "e_flx_avg": self._interpolation_state.e_flx_avg,
+                "ddqz_z_full_e": self._metric_state_nonhydro.ddqz_z_full_e,
+            },
+            variants={
+                "at_first_substep": [False, True],
+                "prepare_advection": [False, True],
+            },
+            horizontal_sizes={
+                "horizontal_start": gtx.int32(self._start_edge_lateral_boundary_level_5),
+                "horizontal_end": self._end_edge_halo_level_2,
+            },
+            vertical_sizes={
+                "vertical_start": gtx.int32(self._grid.num_levels // 2),
                 "vertical_end": gtx.int32(self._grid.num_levels),
             },
             offset_provider=self._grid.connectivities,
@@ -1296,27 +1348,24 @@ class SolveNonhydro:
         at_first_substep: bool,
         at_last_substep: bool,
     ):
-        log.info(
+        log.debug(
             f"running corrector step: dtime = {dtime}, prep_adv = {lprep_adv},  "
             f"second_order_divdamp_factor = {second_order_divdamp_factor}, at_first_substep = {at_first_substep}, at_last_substep = {at_last_substep}  "
         )
 
+        # This is not useful on its own. This just frontloads
+        # 1. The slicing of the "half field"s
+	# 2. The creation of the ghex pattern (not cached since the slicing
+	# creates a new object everytime?)
+	# so that the test for pipelining communication/computation later is
+	# not affected by the above overheads.
+        vn_first_half = prognostic_states.next.vn[:, : self._grid.num_levels // 2]
+        vn_second_half = prognostic_states.next.vn[:, self._grid.num_levels // 2 :]
+        vn_first_half_patterns = self._exchange.init_pattern(dims.EdgeDim, vn_first_half)
+        vn_second_half_patterns = self._exchange2.init_pattern(dims.EdgeDim, vn_second_half)
+
         # Inverse value of ndyn_substeps for tracer advection precomputations
         r_nsubsteps = 1.0 / ndyn_substeps_var
-
-        # scaling factor for second-order divergence damping: second_order_divdamp_factor_from_sfc_to_divdamp_z*delta_x**2
-        # delta_x**2 is approximated by the mean cell area
-        # Coefficient for reduced fourth-order divergence d
-        second_order_divdamp_scaling_coeff = (
-            second_order_divdamp_factor * self._grid.global_properties.mean_cell_area
-        )
-
-        self._calculate_divdamp_fields(
-            interpolated_fourth_order_divdamp_factor=self.interpolated_fourth_order_divdamp_factor,
-            fourth_order_divdamp_scaling_coeff=self.fourth_order_divdamp_scaling_coeff,
-            reduced_fourth_order_divdamp_coeff_at_nest_boundary=self.reduced_fourth_order_divdamp_coeff_at_nest_boundary,
-            second_order_divdamp_factor=second_order_divdamp_factor,
-        )
 
         log.debug("corrector run velocity advection")
         self.velocity_advection.run_corrector_step(
@@ -1349,6 +1398,13 @@ class SolveNonhydro:
             dtime=dtime,
         )
 
+        # scaling factor for second-order divergence damping: second_order_divdamp_factor_from_sfc_to_divdamp_z*delta_x**2
+        # delta_x**2 is approximated by the mean cell area
+        # Coefficient for reduced fourth-order divergence d
+        second_order_divdamp_scaling_coeff = (
+            second_order_divdamp_factor * self._grid.global_properties.mean_cell_area
+        )
+
         log.debug("corrector: start stencil apply_divergence_damping_and_update_vn")
         apply_2nd_order_divergence_damping = (
             self._config.divdamp_order == dycore_states.DivergenceDampingOrder.COMBINED
@@ -1362,7 +1418,19 @@ class SolveNonhydro:
             )
         )
 
-        self._apply_divergence_damping_and_update_vn(
+	# NOTE: Moved further down to allow program setup time to overlap with
+	# other kernels already running.
+
+        self._calculate_divdamp_fields(
+            interpolated_fourth_order_divdamp_factor=self.interpolated_fourth_order_divdamp_factor,
+            fourth_order_divdamp_scaling_coeff=self.fourth_order_divdamp_scaling_coeff,
+            reduced_fourth_order_divdamp_coeff_at_nest_boundary=self.reduced_fourth_order_divdamp_coeff_at_nest_boundary,
+            second_order_divdamp_factor=second_order_divdamp_scaling_coeff,
+        )
+
+        # EXCHANGE OVERLAP EXPERIMENT START
+        # with nvtx.annotate("apply_divergence_damping_and_update_vn_first_half"):
+        self._apply_divergence_damping_and_update_vn_first_half(
             horizontal_gradient_of_normal_wind_divergence=z_fields.horizontal_gradient_of_normal_wind_divergence,
             next_vn=prognostic_states.next.vn,
             current_vn=prognostic_states.current.vn,
@@ -1381,10 +1449,70 @@ class SolveNonhydro:
             apply_4th_order_divergence_damping=apply_4th_order_divergence_damping,
         )
 
-        log.debug("exchanging prognostic field 'vn'")
-        self._exchange.exchange_and_wait(dims.EdgeDim, (prognostic_states.next.vn))
+        log.debug("exchanging prognostic field 'vn' first half")
+        # with nvtx.annotate("first_half_exchange"):
+        # first_half_exchange = _async_exchange_pool.submit(
+        #     self._exchange.exchange_and_wait,
+        #     dims.EdgeDim,
+        #     (prognostic_states.next.vn[:, : self._grid.num_levels // 2]),
+        # )
+        first_half_exchange = self._exchange.exchange(dims.EdgeDim, vn_first_half)
 
-        self._compute_averaged_vn_and_fluxes_and_prepare_tracer_advection(
+        # with nvtx.annotate("apply_divergence_damping_and_update_vn_second_half"):
+        self._apply_divergence_damping_and_update_vn_second_half(
+            horizontal_gradient_of_normal_wind_divergence=z_fields.horizontal_gradient_of_normal_wind_divergence,
+            next_vn=prognostic_states.next.vn,
+            current_vn=prognostic_states.current.vn,
+            dwdz_at_cells_on_model_levels=z_fields.dwdz_at_cells_on_model_levels,
+            predictor_normal_wind_advective_tendency=diagnostic_state_nh.normal_wind_advective_tendency.predictor,
+            corrector_normal_wind_advective_tendency=diagnostic_state_nh.normal_wind_advective_tendency.corrector,
+            normal_wind_tendency_due_to_slow_physics_process=diagnostic_state_nh.normal_wind_tendency_due_to_slow_physics_process,
+            normal_wind_iau_increment=diagnostic_state_nh.normal_wind_iau_increment,
+            theta_v_at_edges_on_model_levels=z_fields.theta_v_at_edges_on_model_levels,
+            horizontal_pressure_gradient=z_fields.horizontal_pressure_gradient,
+            reduced_fourth_order_divdamp_coeff_at_nest_boundary=self.reduced_fourth_order_divdamp_coeff_at_nest_boundary,
+            fourth_order_divdamp_scaling_coeff=self.fourth_order_divdamp_scaling_coeff,
+            second_order_divdamp_scaling_coeff=second_order_divdamp_scaling_coeff,
+            dtime=dtime,
+            apply_2nd_order_divergence_damping=apply_2nd_order_divergence_damping,
+            apply_4th_order_divergence_damping=apply_4th_order_divergence_damping,
+        )
+
+        log.debug("exchanging prognostic field 'vn' second half")
+        # with nvtx.annotate("second_half_exchange"):
+        # second_half_exchange = _async_exchange_pool.submit(
+        #     self._exchange.exchange_and_wait,
+        #     dims.EdgeDim,
+        #     (prognostic_states.next.vn[:, self._grid.num_levels // 2 :]),
+        # )
+        # second_half_exchange = self._exchange2.exchange(dims.EdgeDim, (prognostic_states.next.vn[:, self._grid.num_levels // 2 :]))
+        second_half_exchange = self._exchange2.exchange(dims.EdgeDim, vn_second_half)
+
+        # with nvtx.annotate("first_half_exchange.result"):
+        # first_half_exchange.result()
+        first_half_exchange.wait()
+
+        # with nvtx.annotate("compute_averaged_vn_and_fluxes_and_prepare_tracer_advection_first_half"):
+        self._compute_averaged_vn_and_fluxes_and_prepare_tracer_advection_first_half(
+            spatially_averaged_vn=self.z_vn_avg,
+            mass_flux_at_edges_on_model_levels=diagnostic_state_nh.mass_flux_at_edges_on_model_levels,
+            theta_v_flux_at_edges_on_model_levels=self.theta_v_flux_at_edges_on_model_levels,
+            substep_and_spatially_averaged_vn=prep_adv.vn_traj,
+            substep_averaged_mass_flux=prep_adv.mass_flx_me,
+            vn=prognostic_states.next.vn,
+            rho_at_edges_on_model_levels=z_fields.rho_at_edges_on_model_levels,
+            theta_v_at_edges_on_model_levels=z_fields.theta_v_at_edges_on_model_levels,
+            prepare_advection=lprep_adv,
+            at_first_substep=at_first_substep,
+            r_nsubsteps=r_nsubsteps,
+        )
+
+        # with nvtx.annotate("second_half_exchange.result"):
+        # second_half_exchange.result()
+        second_half_exchange.wait()
+
+        # with nvtx.annotate("compute_averaged_vn_and_fluxes_and_prepare_tracer_advection_second_half"):
+        self._compute_averaged_vn_and_fluxes_and_prepare_tracer_advection_second_half(
             spatially_averaged_vn=self.z_vn_avg,
             mass_flux_at_edges_on_model_levels=diagnostic_state_nh.mass_flux_at_edges_on_model_levels,
             theta_v_flux_at_edges_on_model_levels=self.theta_v_flux_at_edges_on_model_levels,

@@ -32,6 +32,7 @@ class GridState:
     edge_geometry: grid_states.EdgeParams
     cell_geometry: grid_states.CellParams
     exchange_runtime: decomposition_defs.ExchangeRuntime
+    exchange_runtime2: decomposition_defs.ExchangeRuntime
 
 
 grid_state: GridState | None = None  # TODO(havogt): remove module global state
@@ -169,14 +170,34 @@ def grid_init(
         area=cell_areas,
     )
 
+    # Disable halo exchanges (though this leads to segfaults, so probably doesn't work as expected?)
+    # if True:
     if comm_id is None:
         exchange_runtime = decomposition_defs.SingleNodeExchange()
+        exchange_runtime2 = decomposition_defs.SingleNodeExchange()
     else:
         # Set MultiNodeExchange as exchange runtime
         (
             processor_props,
             decomposition_info,
             exchange_runtime,
+        ) = wrapper_common.construct_decomposition(
+            c_glb_index,
+            e_glb_index,
+            v_glb_index,
+            c_owner_mask,
+            e_owner_mask,
+            v_owner_mask,
+            num_cells,
+            num_edges,
+            num_vertices,
+            vertical_size,
+            comm_id,
+        )
+        (
+            _,
+            _,
+            exchange_runtime2,
         ) = wrapper_common.construct_decomposition(
             c_glb_index,
             e_glb_index,
@@ -205,4 +226,5 @@ def grid_init(
         edge_geometry=edge_params,
         cell_geometry=cell_params,
         exchange_runtime=exchange_runtime,
+        exchange_runtime2=exchange_runtime2,
     )
