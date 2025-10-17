@@ -330,8 +330,17 @@ dace = {git = "https://github.com/GridTools/dace", tag = "__gt4py-next-integrati
 # it's triggered later; semantically this is a wrong change, but used for
 # testing so that the `exchange` operation is quick by triggering only pack and
 # receives)
-ghex = {git = "https://github.com/msimberg/GHEX.git", branch = "482fd1a72680160e4b72d15bb3a7ed97847cd7da"}
+# ghex = {git = "https://github.com/msimberg/GHEX.git", branch = "482fd1a72680160e4b72d15bb3a7ed97847cd7da"}
+# nccl
+# ghex = {git = "https://github.com/msimberg/GHEX.git", branch = "nccl-hacks"}
+# ghex = {git = "https://github.com/msimberg/GHEX.git", branch = "b0f337477211ef4baf2ff454ab7e7630a3f5e595"} # good, nccl init
+# ghex = {git = "https://github.com/msimberg/GHEX.git", branch = "0f8b2eb04d098c2988e00498079d7faafe0a6747"} # actual nccl halo exchange
+ghex = {git = "https://github.com/msimberg/GHEX.git", branch = "2fd64ea5c563ef3b5ccb1a3ae33f6c448ed747fc"} # works! maybe?
+# gt4py = {git = "https://github.com/egparedes/gt4py", branch = "optimize_call_overhead"}
+# gt4py = {git = "https://github.com/egparedes/gt4py", branch = "5cd78a38d4ae60877a0c6cefec79d4a722a0ed59"} # optimize_call_overhead
 # gt4py = {git = "https://github.com/GridTools/gt4py", branch = "main"}
+# gt4py = {git = "https://github.com/GridTools/gt4py", branch = "d40196f77c0a2ca7fbc382423093d7f7a288b071"}
+# gt4py = {git = "https://github.com/msimberg/gt4py", branch = "revert-2299"}
 # gt4py = {index = "test.pypi"}
 icon4py-atmosphere-advection = {workspace = true}
 icon4py-atmosphere-diffusion = {workspace = true}
