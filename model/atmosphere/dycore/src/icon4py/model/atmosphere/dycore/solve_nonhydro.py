@@ -372,10 +372,10 @@ class SolveNonhydro:
         | model_backends.BackendDescriptor
         | None,
         exchange: decomposition.ExchangeRuntime = decomposition.SingleNodeExchange(),
-        exchange2: decomposition.ExchangeRuntime = decomposition.SingleNodeExchange(),
+        # exchange2: decomposition.ExchangeRuntime = decomposition.SingleNodeExchange(),
     ):
         self._exchange = exchange
-        self._exchange2 = exchange2
+        # self._exchange2 = exchange2
 
         self._grid = grid
         self._config = config
