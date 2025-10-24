@@ -9,6 +9,7 @@
 
 import dataclasses
 import logging
+import os
 from typing import Final
 
 import gt4py.next as gtx
