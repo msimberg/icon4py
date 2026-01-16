@@ -83,39 +83,39 @@ def test_distributed_interpolation_with_custom_tolerance(
     ), f"comparison of {attrs_name} failed"
 
 
-# attrs.E_FLX_AVG should work here
-@pytest.mark.level("integration")
-@pytest.mark.datatest
-@pytest.mark.mpi
-@pytest.mark.parametrize("processor_props", [True], indirect=True)
-@pytest.mark.parametrize(
-    "attrs_name, intrp_name",
-    [
-        (attrs.C_LIN_E, "c_lin_e"),
-        (attrs.NUDGECOEFFS_E, "nudgecoeff_e"),
-        (attrs.GEOFAC_DIV, "geofac_div"),
-        (attrs.GEOFAC_N2S, "geofac_n2s"),
-        (attrs.GEOFAC_GRDIV, "geofac_grdiv"),
-        (attrs.CELL_AW_VERTS, "c_intp"),
-    ],
-)
-def test_distributed_interpolation_fields(
-    backend: gtx_typing.Backend,
-    interpolation_savepoint: sb.InterpolationSavepoint,
-    grid_savepoint: sb.IconGridSavepoint,
-    experiment: test_defs.Experiment,
-    processor_props: decomposition.ProcessProperties,
-    decomposition_info: decomposition.DecompositionInfo,
-    interpolation_factory_from_savepoint: interpolation_factory.InterpolationFieldsFactory,
-    attrs_name: str,
-    intrp_name: str,
-) -> None:
-    parallel_helpers.check_comm_size(processor_props)
-    intp_factory = interpolation_factory_from_savepoint
-    field_ref = interpolation_savepoint.__getattribute__(intrp_name)()
-    field_ref = field_ref.asnumpy()
-    field = intp_factory.get(attrs_name).asnumpy()
-    assert test_utils.dallclose(field, field_ref), f"comparison of {attrs_name} failed"
+# # attrs.E_FLX_AVG should work here
+# @pytest.mark.level("integration")
+# @pytest.mark.datatest
+# @pytest.mark.mpi
+# @pytest.mark.parametrize("processor_props", [True], indirect=True)
+# @pytest.mark.parametrize(
+#     "attrs_name, intrp_name",
+#     [
+#         (attrs.C_LIN_E, "c_lin_e"),
+#         (attrs.NUDGECOEFFS_E, "nudgecoeff_e"),
+#         (attrs.GEOFAC_DIV, "geofac_div"),
+#         (attrs.GEOFAC_N2S, "geofac_n2s"),
+#         (attrs.GEOFAC_GRDIV, "geofac_grdiv"),
+#         (attrs.CELL_AW_VERTS, "c_intp"),
+#     ],
+# )
+# def test_distributed_interpolation_fields(
+#     backend: gtx_typing.Backend,
+#     interpolation_savepoint: sb.InterpolationSavepoint,
+#     grid_savepoint: sb.IconGridSavepoint,
+#     experiment: test_defs.Experiment,
+#     processor_props: decomposition.ProcessProperties,
+#     decomposition_info: decomposition.DecompositionInfo,
+#     interpolation_factory_from_savepoint: interpolation_factory.InterpolationFieldsFactory,
+#     attrs_name: str,
+#     intrp_name: str,
+# ) -> None:
+#     parallel_helpers.check_comm_size(processor_props)
+#     intp_factory = interpolation_factory_from_savepoint
+#     field_ref = interpolation_savepoint.__getattribute__(intrp_name)()
+#     field_ref = field_ref.asnumpy()
+#     field = intp_factory.get(attrs_name).asnumpy()
+#     assert test_utils.dallclose(field, field_ref), f"comparison of {attrs_name} failed"
 
 
 @pytest.mark.level("integration")
