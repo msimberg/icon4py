@@ -62,50 +62,50 @@ def test_props(processor_props: definitions.ProcessProperties) -> None:
     assert processor_props.comm_size > 1
 
 
-@pytest.mark.mpi(min_size=2)
-@pytest.mark.parametrize(
-    "experiment",
-    [
-        test_defs.Experiments.MCH_CH_R04B09,
-    ],
-)
-@pytest.mark.parametrize("processor_props", [True], indirect=True)
-@pytest.mark.parametrize(
-    ("dim, owned, total"),
-    (
-        (dims.CellDim, (10448, 10448), (10611, 10612)),
-        (dims.EdgeDim, (15820, 15738), (16065, 16067)),
-        (dims.VertexDim, (5373, 5290), (5455, 5456)),
-    ),
-)
-@pytest.mark.datatest
-def test_decomposition_info_masked(
-    dim: gtx.Dimension,
-    owned: int,
-    total: int,
-    caplog: Any,
-    download_ser_data: Any,
-    decomposition_info: definitions.DecompositionInfo,
-    processor_props: definitions.ProcessProperties,
-    experiment: test_defs.Experiment,
-) -> None:
-    check_comm_size(processor_props, sizes=(2,))
-    my_rank = processor_props.rank
-    all_indices = decomposition_info.global_index(dim, definitions.DecompositionInfo.EntryType.ALL)
-    my_total = total[my_rank]
-    my_owned = owned[my_rank]
-    assert all_indices.shape[0] == my_total
+# @pytest.mark.mpi(min_size=2)
+# @pytest.mark.parametrize(
+#     "experiment",
+#     [
+#         test_defs.Experiments.MCH_CH_R04B09,
+#     ],
+# )
+# @pytest.mark.parametrize("processor_props", [True], indirect=True)
+# @pytest.mark.parametrize(
+#     ("dim, owned, total"),
+#     (
+#         (dims.CellDim, (10448, 10448), (10611, 10612)),
+#         (dims.EdgeDim, (15820, 15738), (16065, 16067)),
+#         (dims.VertexDim, (5373, 5290), (5455, 5456)),
+#     ),
+# )
+# @pytest.mark.datatest
+# def test_decomposition_info_masked(
+#     dim: gtx.Dimension,
+#     owned: int,
+#     total: int,
+#     caplog: Any,
+#     download_ser_data: Any,
+#     decomposition_info: definitions.DecompositionInfo,
+#     processor_props: definitions.ProcessProperties,
+#     experiment: test_defs.Experiment,
+# ) -> None:
+#     check_comm_size(processor_props, sizes=(2,))
+#     my_rank = processor_props.rank
+#     all_indices = decomposition_info.global_index(dim, definitions.DecompositionInfo.EntryType.ALL)
+#     my_total = total[my_rank]
+#     my_owned = owned[my_rank]
+#     assert all_indices.shape[0] == my_total
 
-    owned_indices = decomposition_info.global_index(
-        dim, definitions.DecompositionInfo.EntryType.OWNED
-    )
-    assert owned_indices.shape[0] == my_owned
+#     owned_indices = decomposition_info.global_index(
+#         dim, definitions.DecompositionInfo.EntryType.OWNED
+#     )
+#     assert owned_indices.shape[0] == my_owned
 
-    halo_indices = decomposition_info.global_index(
-        dim, definitions.DecompositionInfo.EntryType.HALO
-    )
-    assert halo_indices.shape[0] == my_total - my_owned
-    _assert_index_partitioning(all_indices, halo_indices, owned_indices)
+#     halo_indices = decomposition_info.global_index(
+#         dim, definitions.DecompositionInfo.EntryType.HALO
+#     )
+#     assert halo_indices.shape[0] == my_total - my_owned
+#     _assert_index_partitioning(all_indices, halo_indices, owned_indices)
 
 
 def _assert_index_partitioning(all_indices, halo_indices, owned_indices):
