@@ -79,35 +79,35 @@ lb_lateral = edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
 #     assert test_utils.dallclose(field, field_ref, atol=1e-12)
 
 
-@pytest.mark.datatest
-@pytest.mark.mpi
-@pytest.mark.parametrize("processor_props", [True], indirect=True)
-@pytest.mark.parametrize(
-    "attrs_name, grid_name, lb_domain",
-    (
-        ("inverse_of_" + attrs.DUAL_EDGE_LENGTH, "inv_dual_edge_length", lb_lateral),
-        ("inverse_of_" + attrs.VERTEX_VERTEX_LENGTH, "inv_vert_vert_length", lb_local),
-        ("inverse_of_" + attrs.EDGE_LENGTH, "inverse_primal_edge_lengths", lb_local),
-    ),
-)
-def test_distributed_geometry_attrs_for_inverse(
-    grid_savepoint: sb.IconGridSavepoint,
-    processor_props: decomposition.ProcessProperties,
-    decomposition_info: decomposition.DecompositionInfo,
-    geometry_from_savepoint: geometry.GridGeometry,
-    attrs_name: str,
-    grid_name: str,
-    lb_domain: h_grid.Domain,
-) -> None:
-    pytest.xfail()
-    parallel_helpers.check_comm_size(processor_props)
-    parallel_helpers.log_process_properties(processor_props)
-    parallel_helpers.log_local_field_size(decomposition_info)
-    grid_geometry = geometry_from_savepoint
-    field_ref = grid_savepoint.__getattribute__(grid_name)().asnumpy()
-    field = grid_geometry.get(attrs_name).asnumpy()
-    lb = grid_geometry.grid.start_index(lb_domain)
-    assert test_utils.dallclose(field[lb:], field_ref[lb:], rtol=5e-10)
+# @pytest.mark.datatest
+# @pytest.mark.mpi
+# @pytest.mark.parametrize("processor_props", [True], indirect=True)
+# @pytest.mark.parametrize(
+#     "attrs_name, grid_name, lb_domain",
+#     (
+#         ("inverse_of_" + attrs.DUAL_EDGE_LENGTH, "inv_dual_edge_length", lb_lateral),
+#         ("inverse_of_" + attrs.VERTEX_VERTEX_LENGTH, "inv_vert_vert_length", lb_local),
+#         ("inverse_of_" + attrs.EDGE_LENGTH, "inverse_primal_edge_lengths", lb_local),
+#     ),
+# )
+# def test_distributed_geometry_attrs_for_inverse(
+#     grid_savepoint: sb.IconGridSavepoint,
+#     processor_props: decomposition.ProcessProperties,
+#     decomposition_info: decomposition.DecompositionInfo,
+#     geometry_from_savepoint: geometry.GridGeometry,
+#     attrs_name: str,
+#     grid_name: str,
+#     lb_domain: h_grid.Domain,
+# ) -> None:
+#     pytest.xfail("Wrong results")
+#     parallel_helpers.check_comm_size(processor_props)
+#     parallel_helpers.log_process_properties(processor_props)
+#     parallel_helpers.log_local_field_size(decomposition_info)
+#     grid_geometry = geometry_from_savepoint
+#     field_ref = grid_savepoint.__getattribute__(grid_name)().asnumpy()
+#     field = grid_geometry.get(attrs_name).asnumpy()
+#     lb = grid_geometry.grid.start_index(lb_domain)
+#     assert test_utils.dallclose(field[lb:], field_ref[lb:], rtol=5e-10)
 
 
 @pytest.mark.datatest
