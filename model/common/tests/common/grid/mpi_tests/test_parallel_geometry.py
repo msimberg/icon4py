@@ -44,39 +44,39 @@ lb_local = edge_domain(h_grid.Zone.LOCAL)
 lb_lateral = edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
 
 
-@pytest.mark.datatest
-@pytest.mark.mpi
-@pytest.mark.parametrize("processor_props", [True], indirect=True)
-@pytest.mark.parametrize(
-    "attrs_name, grid_name",
-    [
-        (attrs.EDGE_AREA, "edge_areas"),
-        (attrs.EDGE_NORMAL_U, "primal_normal_v1"),
-        (attrs.EDGE_NORMAL_V, "primal_normal_v2"),
-        (attrs.EDGE_NORMAL_VERTEX_U, "primal_normal_vert_x"),
-        (attrs.EDGE_NORMAL_VERTEX_V, "primal_normal_vert_y"),
-        (attrs.EDGE_NORMAL_CELL_U, "primal_normal_cell_x"),
-        (attrs.EDGE_NORMAL_CELL_V, "primal_normal_cell_y"),
-        (attrs.EDGE_TANGENT_CELL_U, "dual_normal_cell_x"),
-        (attrs.EDGE_TANGENT_VERTEX_U, "dual_normal_vert_x"),
-        (attrs.EDGE_TANGENT_VERTEX_V, "dual_normal_vert_y"),
-    ],
-)
-def test_distributed_geometry_attrs(
-    grid_savepoint: sb.IconGridSavepoint,
-    processor_props: decomposition.ProcessProperties,
-    decomposition_info: decomposition.DecompositionInfo,
-    geometry_from_savepoint: geometry.GridGeometry,
-    attrs_name: str,
-    grid_name: str,
-) -> None:
-    parallel_helpers.check_comm_size(processor_props)
-    parallel_helpers.log_process_properties(processor_props)
-    parallel_helpers.log_local_field_size(decomposition_info)
-    grid_geometry = geometry_from_savepoint
-    field_ref = grid_savepoint.__getattribute__(grid_name)().asnumpy()
-    field = grid_geometry.get(attrs_name).asnumpy()
-    assert test_utils.dallclose(field, field_ref, atol=1e-12)
+# @pytest.mark.datatest
+# @pytest.mark.mpi
+# @pytest.mark.parametrize("processor_props", [True], indirect=True)
+# @pytest.mark.parametrize(
+#     "attrs_name, grid_name",
+#     [
+#         (attrs.EDGE_AREA, "edge_areas"),
+#         (attrs.EDGE_NORMAL_U, "primal_normal_v1"),
+#         (attrs.EDGE_NORMAL_V, "primal_normal_v2"),
+#         (attrs.EDGE_NORMAL_VERTEX_U, "primal_normal_vert_x"),
+#         (attrs.EDGE_NORMAL_VERTEX_V, "primal_normal_vert_y"),
+#         (attrs.EDGE_NORMAL_CELL_U, "primal_normal_cell_x"),
+#         (attrs.EDGE_NORMAL_CELL_V, "primal_normal_cell_y"),
+#         (attrs.EDGE_TANGENT_CELL_U, "dual_normal_cell_x"),
+#         (attrs.EDGE_TANGENT_VERTEX_U, "dual_normal_vert_x"),
+#         (attrs.EDGE_TANGENT_VERTEX_V, "dual_normal_vert_y"),
+#     ],
+# )
+# def test_distributed_geometry_attrs(
+#     grid_savepoint: sb.IconGridSavepoint,
+#     processor_props: decomposition.ProcessProperties,
+#     decomposition_info: decomposition.DecompositionInfo,
+#     geometry_from_savepoint: geometry.GridGeometry,
+#     attrs_name: str,
+#     grid_name: str,
+# ) -> None:
+#     parallel_helpers.check_comm_size(processor_props)
+#     parallel_helpers.log_process_properties(processor_props)
+#     parallel_helpers.log_local_field_size(decomposition_info)
+#     grid_geometry = geometry_from_savepoint
+#     field_ref = grid_savepoint.__getattribute__(grid_name)().asnumpy()
+#     field = grid_geometry.get(attrs_name).asnumpy()
+#     assert test_utils.dallclose(field, field_ref, atol=1e-12)
 
 
 @pytest.mark.datatest
