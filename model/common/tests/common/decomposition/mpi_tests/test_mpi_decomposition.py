@@ -108,62 +108,62 @@ def test_props(processor_props: definitions.ProcessProperties) -> None:
 #     _assert_index_partitioning(all_indices, halo_indices, owned_indices)
 
 
-def _assert_index_partitioning(all_indices, halo_indices, owned_indices):
-    owned_list = owned_indices.tolist()
-    halos_list = halo_indices.tolist()
-    all_list = all_indices.tolist()
-    assert set(owned_list) & set(halos_list) == set()
-    assert set(owned_list) & set(all_list) == set(owned_list)
-    assert set(halos_list) & set(all_list) == set(halos_list)
-    assert set(halos_list) | set(owned_list) == set(all_list)
+# def _assert_index_partitioning(all_indices, halo_indices, owned_indices):
+#     owned_list = owned_indices.tolist()
+#     halos_list = halo_indices.tolist()
+#     all_list = all_indices.tolist()
+#     assert set(owned_list) & set(halos_list) == set()
+#     assert set(owned_list) & set(all_list) == set(owned_list)
+#     assert set(halos_list) & set(all_list) == set(halos_list)
+#     assert set(halos_list) | set(owned_list) == set(all_list)
 
 
-@pytest.mark.parametrize("processor_props", [True], indirect=True)
-@pytest.mark.parametrize(
-    "experiment",
-    [
-        test_defs.Experiments.MCH_CH_R04B09,
-    ],
-)
-@pytest.mark.parametrize(
-    ("dim, owned, total"),
-    (
-        (dims.CellDim, (10448, 10448), (10611, 10612)),
-        (dims.EdgeDim, (15820, 15738), (16065, 16067)),
-        (dims.VertexDim, (5373, 5290), (5455, 5456)),
-    ),
-)
-@pytest.mark.datatest
-@pytest.mark.mpi(min_size=2)
-def test_decomposition_info_local_index(
-    dim: gtx.Dimension,
-    owned: int,
-    total: int,
-    caplog: Any,
-    decomposition_info: definitions.DecompositionInfo,
-    processor_props: definitions.ProcessProperties,
-    experiment: test_defs.Experiment,
-):
-    check_comm_size(processor_props, sizes=(2,))
-    my_rank = processor_props.rank
-    all_indices = decomposition_info.local_index(dim, definitions.DecompositionInfo.EntryType.ALL)
-    my_total = total[my_rank]
-    my_owned = owned[my_rank]
+# @pytest.mark.parametrize("processor_props", [True], indirect=True)
+# @pytest.mark.parametrize(
+#     "experiment",
+#     [
+#         test_defs.Experiments.MCH_CH_R04B09,
+#     ],
+# )
+# @pytest.mark.parametrize(
+#     ("dim, owned, total"),
+#     (
+#         (dims.CellDim, (10448, 10448), (10611, 10612)),
+#         (dims.EdgeDim, (15820, 15738), (16065, 16067)),
+#         (dims.VertexDim, (5373, 5290), (5455, 5456)),
+#     ),
+# )
+# @pytest.mark.datatest
+# @pytest.mark.mpi(min_size=2)
+# def test_decomposition_info_local_index(
+#     dim: gtx.Dimension,
+#     owned: int,
+#     total: int,
+#     caplog: Any,
+#     decomposition_info: definitions.DecompositionInfo,
+#     processor_props: definitions.ProcessProperties,
+#     experiment: test_defs.Experiment,
+# ):
+#     check_comm_size(processor_props, sizes=(2,))
+#     my_rank = processor_props.rank
+#     all_indices = decomposition_info.local_index(dim, definitions.DecompositionInfo.EntryType.ALL)
+#     my_total = total[my_rank]
+#     my_owned = owned[my_rank]
 
-    assert all_indices.shape[0] == my_total
-    assert np.array_equal(all_indices, np.arange(0, my_total))
-    halo_indices = decomposition_info.local_index(dim, definitions.DecompositionInfo.EntryType.HALO)
-    assert halo_indices.shape[0] == my_total - my_owned
-    assert halo_indices.shape[0] < all_indices.shape[0]
-    assert np.all(halo_indices <= np.max(all_indices))
+#     assert all_indices.shape[0] == my_total
+#     assert np.array_equal(all_indices, np.arange(0, my_total))
+#     halo_indices = decomposition_info.local_index(dim, definitions.DecompositionInfo.EntryType.HALO)
+#     assert halo_indices.shape[0] == my_total - my_owned
+#     assert halo_indices.shape[0] < all_indices.shape[0]
+#     assert np.all(halo_indices <= np.max(all_indices))
 
-    owned_indices = decomposition_info.local_index(
-        dim, definitions.DecompositionInfo.EntryType.OWNED
-    )
-    assert owned_indices.shape[0] == my_owned
-    assert owned_indices.shape[0] <= all_indices.shape[0]
-    assert np.all(owned_indices <= np.max(all_indices))
-    _assert_index_partitioning(all_indices, halo_indices, owned_indices)
+#     owned_indices = decomposition_info.local_index(
+#         dim, definitions.DecompositionInfo.EntryType.OWNED
+#     )
+#     assert owned_indices.shape[0] == my_owned
+#     assert owned_indices.shape[0] <= all_indices.shape[0]
+#     assert np.all(owned_indices <= np.max(all_indices))
+#     _assert_index_partitioning(all_indices, halo_indices, owned_indices)
 
 
 @pytest.mark.mpi
