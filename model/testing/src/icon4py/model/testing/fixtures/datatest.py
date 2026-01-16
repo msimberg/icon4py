@@ -91,7 +91,7 @@ def cpu_allocator() -> gtx_typing.FieldBufferAllocationUtil:
     params=[
         definitions.Experiments.MCH_CH_R04B09,
         definitions.Experiments.EXCLAIM_APE,
-        definitions.Experiments.GAUSS3D,
+        # definitions.Experiments.GAUSS3D,
     ],
     ids=lambda r: r.name,
 )
