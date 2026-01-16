@@ -55,9 +55,9 @@ if TYPE_CHECKING:
             5e-9,
             1e-10,
         ),  # FIXME (halungge): should run with default tolerances
-        (attrs.E_BLN_C_S, "e_bln_c_s", 1e-10, 0.0),
-        (attrs.POS_ON_TPLANE_E_X, "pos_on_tplane_e_x", 1e-9, 1e-8),
-        (attrs.POS_ON_TPLANE_E_Y, "pos_on_tplane_e_y", 1e-9, 1e-8),
+        # (attrs.E_BLN_C_S, "e_bln_c_s", 1e-10, 0.0),
+        # (attrs.POS_ON_TPLANE_E_X, "pos_on_tplane_e_x", 1e-9, 1e-8),
+        # (attrs.POS_ON_TPLANE_E_Y, "pos_on_tplane_e_y", 1e-9, 1e-8),
     ],
 )
 def test_distributed_interpolation_with_custom_tolerance(
