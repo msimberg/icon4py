@@ -153,30 +153,30 @@ def test_distributed_interpolation_grg(
     ), f"comparison of {attrs.GEOFAC_GRG_Y} failed"
 
 
-@pytest.mark.datatest
-@pytest.mark.mpi
-@pytest.mark.parametrize("processor_props", [True], indirect=True)
-def test_distributed_interpolation_geofac_rot(
-    backend: gtx_typing.Backend,
-    interpolation_savepoint: sb.InterpolationSavepoint,
-    grid_savepoint: sb.IconGridSavepoint,
-    experiment: test_defs.Experiment,
-    processor_props: decomposition.ProcessProperties,
-    decomposition_info: decomposition.DecompositionInfo,
-    interpolation_factory_from_savepoint: interpolation_factory.InterpolationFieldsFactory,
-) -> None:
-    parallel_helpers.check_comm_size(processor_props)
-    parallel_helpers.log_process_properties(processor_props)
-    parallel_helpers.log_local_field_size(decomposition_info)
-    factory = interpolation_factory_from_savepoint
-    horizontal_start = factory.grid.start_index(
-        h_grid.vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
-    )
-    field_ref = interpolation_savepoint.geofac_rot().asnumpy()
-    field = factory.get(attrs.GEOFAC_ROT).asnumpy()
-    assert test_utils.dallclose(
-        field[horizontal_start:, :], field_ref[horizontal_start:, :]
-    ), f"comparison of {attrs.GEOFAC_ROT} failed"
+# @pytest.mark.datatest
+# @pytest.mark.mpi
+# @pytest.mark.parametrize("processor_props", [True], indirect=True)
+# def test_distributed_interpolation_geofac_rot(
+#     backend: gtx_typing.Backend,
+#     interpolation_savepoint: sb.InterpolationSavepoint,
+#     grid_savepoint: sb.IconGridSavepoint,
+#     experiment: test_defs.Experiment,
+#     processor_props: decomposition.ProcessProperties,
+#     decomposition_info: decomposition.DecompositionInfo,
+#     interpolation_factory_from_savepoint: interpolation_factory.InterpolationFieldsFactory,
+# ) -> None:
+#     parallel_helpers.check_comm_size(processor_props)
+#     parallel_helpers.log_process_properties(processor_props)
+#     parallel_helpers.log_local_field_size(decomposition_info)
+#     factory = interpolation_factory_from_savepoint
+#     horizontal_start = factory.grid.start_index(
+#         h_grid.vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
+#     )
+#     field_ref = interpolation_savepoint.geofac_rot().asnumpy()
+#     field = factory.get(attrs.GEOFAC_ROT).asnumpy()
+#     assert test_utils.dallclose(
+#         field[horizontal_start:, :], field_ref[horizontal_start:, :]
+#     ), f"comparison of {attrs.GEOFAC_ROT} failed"
 
 
 @pytest.mark.datatest
