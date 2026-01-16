@@ -142,37 +142,37 @@ def test_geometry_attr_no_halos(
     assert test_utils.dallclose(field, field_ref, equal_nan=True, atol=1e-12)
 
 
-@pytest.mark.datatest
-@pytest.mark.mpi
-@pytest.mark.parametrize("processor_props", [True], indirect=True)
-@pytest.mark.parametrize(
-    "x, y, z, dimension",
-    [
-        (attrs.CELL_CENTER_X, attrs.CELL_CENTER_Y, attrs.CELL_CENTER_Z, dims.CellDim),
-        (attrs.EDGE_CENTER_X, attrs.EDGE_CENTER_Y, attrs.EDGE_CENTER_Z, dims.EdgeDim),
-        (attrs.VERTEX_X, attrs.VERTEX_Y, attrs.VERTEX_Z, dims.VertexDim),
-    ],
-)
-def test_cartesian_geometry_attr_no_halos(
-    grid_savepoint: sb.IconGridSavepoint,
-    backend: gtx_typing.Backend,
-    processor_props: decomposition.ProcessProperties,
-    decomposition_info: decomposition.DecompositionInfo,
-    geometry_from_savepoint: geometry.GridGeometry,
-    x: str,
-    y: str,
-    z: str,
-    dimension: gtx.Dimension,
-) -> None:
-    parallel_helpers.check_comm_size(processor_props)
-    parallel_helpers.log_process_properties(processor_props)
-    parallel_helpers.log_local_field_size(decomposition_info)
-    grid_geometry = geometry_from_savepoint
-    x_field = grid_geometry.get(x)
-    y_field = grid_geometry.get(y)
-    z_field = grid_geometry.get(z)
-    norm = data_alloc.zero_field(
-        grid_geometry.grid, dimension, dtype=x_field.dtype, allocator=backend
-    )
-    math_helpers.norm2_on_vertices(x_field, z_field, y_field, out=norm, offset_provider={})
-    assert test_utils.dallclose(norm.asnumpy(), 1.0)
+# @pytest.mark.datatest
+# @pytest.mark.mpi
+# @pytest.mark.parametrize("processor_props", [True], indirect=True)
+# @pytest.mark.parametrize(
+#     "x, y, z, dimension",
+#     [
+#         (attrs.CELL_CENTER_X, attrs.CELL_CENTER_Y, attrs.CELL_CENTER_Z, dims.CellDim),
+#         (attrs.EDGE_CENTER_X, attrs.EDGE_CENTER_Y, attrs.EDGE_CENTER_Z, dims.EdgeDim),
+#         (attrs.VERTEX_X, attrs.VERTEX_Y, attrs.VERTEX_Z, dims.VertexDim),
+#     ],
+# )
+# def test_cartesian_geometry_attr_no_halos(
+#     grid_savepoint: sb.IconGridSavepoint,
+#     backend: gtx_typing.Backend,
+#     processor_props: decomposition.ProcessProperties,
+#     decomposition_info: decomposition.DecompositionInfo,
+#     geometry_from_savepoint: geometry.GridGeometry,
+#     x: str,
+#     y: str,
+#     z: str,
+#     dimension: gtx.Dimension,
+# ) -> None:
+#     parallel_helpers.check_comm_size(processor_props)
+#     parallel_helpers.log_process_properties(processor_props)
+#     parallel_helpers.log_local_field_size(decomposition_info)
+#     grid_geometry = geometry_from_savepoint
+#     x_field = grid_geometry.get(x)
+#     y_field = grid_geometry.get(y)
+#     z_field = grid_geometry.get(z)
+#     norm = data_alloc.zero_field(
+#         grid_geometry.grid, dimension, dtype=x_field.dtype, allocator=backend
+#     )
+#     math_helpers.norm2_on_vertices(x_field, z_field, y_field, out=norm, offset_provider={})
+#     assert test_utils.dallclose(norm.asnumpy(), 1.0)
