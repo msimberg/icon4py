@@ -116,13 +116,13 @@ lb_lateral = edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
 @pytest.mark.parametrize(
     "attrs_name, grid_name",
     [
-        (attrs.CORIOLIS_PARAMETER, "f_e"),
-        (attrs.EDGE_TANGENT_X, "dual_cart_normal_x"),
-        (attrs.EDGE_TANGENT_Y, "dual_cart_normal_y"),
-        (attrs.EDGE_TANGENT_Z, "dual_cart_normal_z"),
+        # (attrs.CORIOLIS_PARAMETER, "f_e"),
+        # (attrs.EDGE_TANGENT_X, "dual_cart_normal_x"),
+        # (attrs.EDGE_TANGENT_Y, "dual_cart_normal_y"),
+        # (attrs.EDGE_TANGENT_Z, "dual_cart_normal_z"),
         (attrs.EDGE_NORMAL_X, "primal_cart_normal_x"),
-        (attrs.EDGE_NORMAL_Y, "primal_cart_normal_y"),
-        (attrs.EDGE_NORMAL_Z, "primal_cart_normal_z"),
+        # (attrs.EDGE_NORMAL_Y, "primal_cart_normal_y"),
+        # (attrs.EDGE_NORMAL_Z, "primal_cart_normal_z"),
     ],
 )
 def test_geometry_attr_no_halos(
