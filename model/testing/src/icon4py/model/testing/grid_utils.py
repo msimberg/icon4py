@@ -144,6 +144,7 @@ def get_grid_geometry(
             geometry_attrs.attrs,
         )
 
-    if not grid_geometries.get(register_name):
-        grid_geometries[register_name] = _construct_grid_geometry()
-    return grid_geometries[register_name]
+    return _construct_grid_geometry()
+    # if not grid_geometries.get(register_name):
+    #     grid_geometries[register_name] = _construct_grid_geometry()
+    # return grid_geometries[register_name]

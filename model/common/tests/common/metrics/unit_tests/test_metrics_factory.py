@@ -55,54 +55,55 @@ def _get_metrics_factory(
 
     topography = topography_savepoint.topo_c()
 
-    if not factory:
-        geometry = gridtest_utils.get_grid_geometry(backend, experiment)
-        (
-            lowest_layer_thickness,
-            model_top_height,
-            stretch_factor,
-            damping_height,
-            rayleigh_coeff,
-            exner_expol,
-            vwind_offctr,
-            rayleigh_type,
-        ) = construct_metrics_config(experiment)
+    # if not factory:
+    geometry = gridtest_utils.get_grid_geometry(backend, experiment)
+    (
+        lowest_layer_thickness,
+        model_top_height,
+        stretch_factor,
+        damping_height,
+        rayleigh_coeff,
+        exner_expol,
+        vwind_offctr,
+        rayleigh_type,
+    ) = construct_metrics_config(experiment)
 
-        vertical_config = v_grid.VerticalGridConfig(
-            geometry.grid.num_levels,
-            lowest_layer_thickness=lowest_layer_thickness,
-            model_top_height=model_top_height,
-            stretch_factor=stretch_factor,
-            rayleigh_damping_height=damping_height,
-        )
-        vertical_grid = v_grid.VerticalGrid(
-            vertical_config, grid_savepoint.vct_a(), grid_savepoint.vct_b()
-        )
-        interpolation_field_source = interpolation_factory.InterpolationFieldsFactory(
-            grid=geometry.grid,
-            decomposition_info=geometry._decomposition_info,
-            geometry_source=geometry,
-            backend=backend,
-            metadata=interpolation_attributes.attrs,
-            exchange=exchange,
-        )
-        factory = metrics_factory.MetricsFieldsFactory(
-            grid=geometry.grid,
-            vertical_grid=vertical_grid,
-            decomposition_info=geometry._decomposition_info,
-            geometry_source=geometry,
-            topography=topography,
-            interpolation_source=interpolation_field_source,
-            backend=backend,
-            metadata=attrs.attrs,
-            rayleigh_type=rayleigh_type,
-            rayleigh_coeff=rayleigh_coeff,
-            exner_expol=exner_expol,
-            vwind_offctr=vwind_offctr,
-            exchange=exchange,
-        )
-        metrics_factories[registry_name] = factory
+    vertical_config = v_grid.VerticalGridConfig(
+        geometry.grid.num_levels,
+        lowest_layer_thickness=lowest_layer_thickness,
+        model_top_height=model_top_height,
+        stretch_factor=stretch_factor,
+        rayleigh_damping_height=damping_height,
+    )
+    vertical_grid = v_grid.VerticalGrid(
+        vertical_config, grid_savepoint.vct_a(), grid_savepoint.vct_b()
+    )
+    interpolation_field_source = interpolation_factory.InterpolationFieldsFactory(
+        grid=geometry.grid,
+        decomposition_info=geometry._decomposition_info,
+        geometry_source=geometry,
+        backend=backend,
+        metadata=interpolation_attributes.attrs,
+        exchange=exchange,
+    )
+    factory = metrics_factory.MetricsFieldsFactory(
+        grid=geometry.grid,
+        vertical_grid=vertical_grid,
+        decomposition_info=geometry._decomposition_info,
+        geometry_source=geometry,
+        topography=topography,
+        interpolation_source=interpolation_field_source,
+        backend=backend,
+        metadata=attrs.attrs,
+        rayleigh_type=rayleigh_type,
+        rayleigh_coeff=rayleigh_coeff,
+        exner_expol=exner_expol,
+        vwind_offctr=vwind_offctr,
+        exchange=exchange,
+    )
     return factory
+    #     metrics_factories[registry_name] = factory
+    # return factory
 
 
 @pytest.mark.level("integration")

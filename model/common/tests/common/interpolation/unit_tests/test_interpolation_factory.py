@@ -63,19 +63,20 @@ def _get_interpolation_factory(
     experiment: definitions.Experiment,
 ) -> interpolation_factory.InterpolationFieldsFactory:
     registry_key = "_".join((experiment.name, data_alloc.backend_name(backend)))
-    factory = interpolation_factories.get(registry_key)
-    if not factory:
-        geometry = gridtest_utils.get_grid_geometry(backend, experiment)
+    # factory = interpolation_factories.get(registry_key)
+    # if not factory:
+    geometry = gridtest_utils.get_grid_geometry(backend, experiment)
 
-        factory = interpolation_factory.InterpolationFieldsFactory(
-            grid=geometry.grid,
-            decomposition_info=geometry._decomposition_info,
-            geometry_source=geometry,
-            backend=backend,
-            metadata=attrs.attrs,
-        )
-        interpolation_factories[registry_key] = factory
+    factory = interpolation_factory.InterpolationFieldsFactory(
+        grid=geometry.grid,
+        decomposition_info=geometry._decomposition_info,
+        geometry_source=geometry,
+        backend=backend,
+        metadata=attrs.attrs,
+    )
     return factory
+    # interpolation_factories[registry_key] = factory
+    # return factory
 
 
 @pytest.mark.datatest
