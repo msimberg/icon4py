@@ -156,12 +156,24 @@ class IconGridSavepoint(IconSavepoint):
         )
 
     def verts_vertex_lat(self):
-        """vertex latituted"""
+        """vertex latitute"""
         return self._get_field("verts_vertex_lat", dims.VertexDim)
 
     def verts_vertex_lon(self):
         """vertex longitude"""
         return self._get_field("verts_vertex_lon", dims.VertexDim)
+
+    def verts_vertex_x(self):
+        """vertex x coordinate"""
+        return self._get_field("verts_vertex_x", dims.VertexDim)
+
+    def verts_vertex_y(self):
+        """vertex y coordinate"""
+        return self._get_field("verts_vertex_y", dims.VertexDim)
+
+    def verts_vertex_z(self):
+        """vertex z coordinate"""
+        return self._get_field("verts_vertex_z", dims.VertexDim)
 
     def primal_normal_v1(self):
         return self._get_field("primal_normal_v1", dims.EdgeDim)
@@ -282,11 +294,24 @@ class IconGridSavepoint(IconSavepoint):
                 raise ValueError
 
     def coordinates(self):
-        return {
+        coords = {
             dims.CellDim: {"lat": self.cell_center_lat(), "lon": self.cell_center_lon()},
             dims.EdgeDim: {"lat": self.edges_center_lat(), "lon": self.edges_center_lon()},
             dims.VertexDim: {"lat": self.verts_vertex_lat(), "lon": self.verts_vertex_lon()},
         }
+
+        if self.global_grid_params.geometry_type == base.GeometryType.TORUS:
+            coords[dims.CellDim]["x"] = self.cell_center_x()
+            coords[dims.CellDim]["y"] = self.cell_center_y()
+            coords[dims.CellDim]["z"] = self.cell_center_z()
+            coords[dims.EdgeDim]["x"] = self.edge_center_x()
+            coords[dims.EdgeDim]["y"] = self.edge_center_y()
+            coords[dims.EdgeDim]["z"] = self.edge_center_z()
+            coords[dims.VertexDim]["x"] = self.vertex_verts_x()
+            coords[dims.VertexDim]["y"] = self.vertex_verts_y()
+            coords[dims.VertexDim]["z"] = self.vertex_verts_z()
+
+        return coords
 
     def cell_center_lat(self):
         return self._get_field("cell_center_lat", dims.CellDim)
@@ -294,11 +319,29 @@ class IconGridSavepoint(IconSavepoint):
     def cell_center_lon(self):
         return self._get_field("cell_center_lon", dims.CellDim)
 
+    def cell_center_x(self):
+        return self._get_field("cell_center_x", dims.CellDim)
+
+    def cell_center_y(self):
+        return self._get_field("cell_center_y", dims.CellDim)
+
+    def cell_center_z(self):
+        return self._get_field("cell_center_z", dims.CellDim)
+
     def edge_center_lat(self):
         return self._get_field("edges_center_lat", dims.EdgeDim)
 
     def edge_center_lon(self):
         return self._get_field("edges_center_lon", dims.EdgeDim)
+
+    def edge_center_x(self):
+        return self._get_field("edge_center_x", dims.EdgeDim)
+
+    def edge_center_y(self):
+        return self._get_field("edge_center_y", dims.EdgeDim)
+
+    def edge_center_z(self):
+        return self._get_field("edge_center_z", dims.EdgeDim)
 
     def mean_cell_area(self):
         return self.serializer.read("mean_cell_area", self.savepoint).astype(float)[0]
