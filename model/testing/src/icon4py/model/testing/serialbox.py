@@ -1642,7 +1642,8 @@ class NonHydroExitEdgeDiagnosticsUpdateVnSavepoint(IconSavepoint):
         return self._get_field("z_theta_v_e", dims.EdgeDim, dims.KDim)
 
     def z_gradh_exner(self):
-        return self._get_field("z_gradh_exner", dims.EdgeDim, dims.KDim)
+        # TODO(): The name z_gradd_exner is a typo on the ICON fortran side.
+        return self._get_field("z_gradd_exner", dims.EdgeDim, dims.KDim)
 
     def vn(self):
         return self._get_field("vn_new", dims.EdgeDim, dims.KDim)
