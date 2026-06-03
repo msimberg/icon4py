@@ -70,6 +70,7 @@ log = logging.getLogger(__name__)
 class Icon4pyDriver:
     def __init__(
         self,
+        *,
         config: driver_config.DriverConfig,
         backend: gtx.typing.Backend | None,
         grid: IconGrid,
@@ -78,6 +79,7 @@ class Icon4pyDriver:
         static_field_factories: driver_states.StaticFieldFactories,
         diffusion_granule: diffusion.Diffusion,
         solve_nonhydro_granule: solve_nh.SolveNonhydro,
+        vertical_grid_config: v_grid.VerticalGridConfig,
         tracer_advection_granule: advection.Advection,
         processor_props: decomposition_defs.ProcessProperties,
         exchange: decomposition_defs.ExchangeRuntime,
@@ -91,6 +93,7 @@ class Icon4pyDriver:
         self.static_field_factories = static_field_factories
         self.diffusion = diffusion_granule
         self.solve_nonhydro = solve_nonhydro_granule
+        self.vertical_grid_config = vertical_grid_config
         self.model_time_variables = driver_states.ModelTimeVariables(config=config)
         self.tracer_advection = tracer_advection_granule
         self.timer_collection = driver_states.TimerCollection(
@@ -400,14 +403,14 @@ class Icon4pyDriver:
             self.model_time_variables.next_simulation_date()
 
             self._integrate_one_time_step(
-                diffusion_diagnostic_state,
-                solve_nonhydro_diagnostic_state,
-                tracer_advection_diagnostic_state,
-                prognostic_states,
-                prep_adv,
-                do_prep_adv,
-                tracer_prep_adv,
-                diagnostic_state,
+                diffusion_diagnostic_state=diffusion_diagnostic_state,
+                solve_nonhydro_diagnostic_state=solve_nonhydro_diagnostic_state,
+                tracer_advection_diagnostic_state=tracer_advection_diagnostic_state,
+                prognostic_states=prognostic_states,
+                prep_adv=prep_adv,
+                do_prep_adv=do_prep_adv,
+                tracer_prep_adv=tracer_prep_adv,
+                diagnostic_state=diagnostic_state,
             )
             device_utils.sync(self.backend)
 
@@ -448,6 +451,7 @@ class Icon4pyDriver:
 
     def _integrate_one_time_step(
         self,
+        *,
         diffusion_diagnostic_state: diffusion_states.DiffusionDiagnosticState,
         solve_nonhydro_diagnostic_state: dycore_states.DiagnosticStateNonHydro,
         tracer_advection_diagnostic_state: advection_states.AdvectionDiagnosticState,
@@ -556,8 +560,8 @@ class Icon4pyDriver:
 
             with timer_solve_nh:
                 self.solve_nonhydro.time_step(
-                    solve_nonhydro_diagnostic_state,
-                    prognostic_states,
+                    diagnostic_state_nh=solve_nonhydro_diagnostic_state,
+                    prognostic_states=prognostic_states,
                     prep_adv=prep_adv,
                     second_order_divdamp_factor=self._update_spinup_second_order_divergence_damping(),
                     dtime=self.model_time_variables.substep_timestep,
@@ -585,7 +589,6 @@ class Icon4pyDriver:
             self._xp.asarray(
                 solve_nonhydro_diagnostic_state.max_vertical_cfl[()], dtype=ta.wpfloat
             ),
-            array_ns=self._xp,
         )
         if (
             global_max_vertical_cfl
@@ -714,13 +717,11 @@ class Icon4pyDriver:
             # TODO (Chia Rui): Do global max when multinode is ready
             rho_arg_max, max_rho = driver_utils.find_maximum_from_field(
                 prognostic_states.rho,
-                self._xp,
             )
             vn_arg_max, max_vn = driver_utils.find_maximum_from_field(
                 prognostic_states.vn,
-                self._xp,
             )
-            w_arg_max, max_w = driver_utils.find_maximum_from_field(prognostic_states.w, self._xp)
+            w_arg_max, max_w = driver_utils.find_maximum_from_field(prognostic_states.w)
 
             def _determine_sign(input_number: float) -> str:
                 return " " if input_number >= 0.0 else "-"
@@ -752,7 +753,7 @@ class Icon4pyDriver:
             local_mass = (
                 rho_ndarray * cell_area_ndarray[:, self._xp.newaxis] * cell_thickness_ndarray
             )
-            global_total_mass = self.global_reductions.sum(local_mass, array_ns=self._xp)
+            global_total_mass = self.global_reductions.sum(local_mass)
             # TODO (Chia Rui): compute total energy
             log.info(f"GLOBAL TOTAL MASS: {global_total_mass:.15e} kg")
 
@@ -768,11 +769,11 @@ class Icon4pyDriver:
             log.info("")
             log.info("Global mean of    rho         vn           w          theta_v     exner:")
             log.info(
-                f"{self.global_reductions.mean(rho_ndarray, array_ns=self._xp):.5e} "
-                f"{self.global_reductions.mean(vn_ndarray, array_ns=self._xp):.5e} "
-                f"{self.global_reductions.mean(w_ndarray, array_ns=self._xp):.5e} "
-                f"{self.global_reductions.mean(theta_v_ndarray, array_ns=self._xp):.5e} "
-                f"{self.global_reductions.mean(exner_ndarray, array_ns=self._xp):.5e} "
+                f"{self.global_reductions.mean(rho_ndarray):.5e} "
+                f"{self.global_reductions.mean(vn_ndarray):.5e} "
+                f"{self.global_reductions.mean(w_ndarray):.5e} "
+                f"{self.global_reductions.mean(theta_v_ndarray):.5e} "
+                f"{self.global_reductions.mean(exner_ndarray):.5e} "
             )
 
 
@@ -842,6 +843,7 @@ def _read_config(
 
 
 def initialize_driver(
+    *,
     output_path: pathlib.Path,
     grid_file_path: pathlib.Path,
     log_level: str,
@@ -944,7 +946,6 @@ def initialize_driver(
     cell_topography = topography.jablonowski_williamson(
         cell_lat=grid_manager.coordinates[dims.CellDim]["lat"].ndarray,
         u0=35.0,
-        array_ns=data_alloc.import_array_ns(allocator=allocator),
     )
 
     log.info("initializing the static-field factories")
@@ -987,6 +988,7 @@ def initialize_driver(
         static_field_factories=static_field_factories,
         diffusion_granule=diffusion_granule,
         solve_nonhydro_granule=solve_nonhydro_granule,
+        vertical_grid_config=vertical_grid_config,
         tracer_advection_granule=tracer_advection_granule,
         processor_props=process_props,
         exchange=exchange,

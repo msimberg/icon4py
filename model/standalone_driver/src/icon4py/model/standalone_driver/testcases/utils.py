@@ -6,10 +6,6 @@
 # Please, refer to the LICENSE file in the root directory.
 # SPDX-License-Identifier: BSD-3-Clause
 
-from types import ModuleType
-
-import numpy as np
-
 from icon4py.model.common import constants as phy_const, dimension as dims
 from icon4py.model.common.grid import horizontal as h_grid, icon as icon_grid
 from icon4py.model.common.math.stencils import generic_math_operations_array_ns
@@ -17,6 +13,7 @@ from icon4py.model.common.utils import data_allocation as data_alloc
 
 
 def apply_hydrostatic_adjustment_ndarray(
+    *,
     rho: data_alloc.NDArray,
     exner: data_alloc.NDArray,
     theta_v: data_alloc.NDArray,
@@ -27,11 +24,11 @@ def apply_hydrostatic_adjustment_ndarray(
     wgtfac_c: data_alloc.NDArray,
     ddqz_z_half: data_alloc.NDArray,
     num_levels: int,
-    array_ns: ModuleType = np,
 ) -> None:
     """
     apply hydrostatic adjustment to update rho, exner, and theta_v arrays
     """
+    array_ns = data_alloc.array_namespace(rho)
     # virtual temperature
     temp_v = theta_v * exner
 
@@ -59,6 +56,7 @@ def apply_hydrostatic_adjustment_ndarray(
 
 
 def hydrostatic_adjustment_constant_thetav_ndarray(
+    *,
     wgtfac_c: data_alloc.NDArray,
     ddqz_z_half: data_alloc.NDArray,
     exner_ref_mc: data_alloc.NDArray,
@@ -99,6 +97,7 @@ def hydrostatic_adjustment_constant_thetav_ndarray(
 
 
 def zonalwind_2_normalwind_ndarray(
+    *,
     grid: icon_grid.IconGrid,
     jw_u0: float,
     jw_baroclinic_amplitude: float,
@@ -108,7 +107,6 @@ def zonalwind_2_normalwind_ndarray(
     edge_lon: data_alloc.NDArray,
     primal_normal_x: data_alloc.NDArray,
     eta_v_at_edge: data_alloc.NDArray,
-    array_ns: ModuleType = np,
 ) -> data_alloc.NDArray:
     """
     Compute normal wind at edge center from vertical eta coordinate (eta_v_at_edge).
@@ -126,6 +124,7 @@ def zonalwind_2_normalwind_ndarray(
     Returns: normal wind
     """
     # TODO(OngChia): this function needs a test
+    array_ns = data_alloc.array_namespace(edge_lat)
     ub = grid.end_index(h_grid.domain(dims.EdgeDim)(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))
     mask = array_ns.ones((grid.num_edges, grid.num_levels), dtype=bool)
     mask[
@@ -173,6 +172,7 @@ def zonalwind_2_normalwind_ndarray(
 
 
 def init_w(
+    *,
     grid: icon_grid.IconGrid,
     z_ifc: data_alloc.NDArray,
     inv_dual_edge_length: data_alloc.NDArray,
@@ -182,8 +182,8 @@ def init_w(
     vn: data_alloc.NDArray,
     vct_b: data_alloc.NDArray,
     nlev: int,
-    array_ns: ModuleType,
 ) -> data_alloc.NDArray:
+    array_ns = data_alloc.array_namespace(z_ifc)
     # The bounds need to include the first halo line because of the e2c -> c2e connectivity
     lb_e = grid.start_index(h_grid.domain(dims.EdgeDim)(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))
     ub_e = grid.end_index(h_grid.domain(dims.EdgeDim)(h_grid.Zone.END))
@@ -194,20 +194,24 @@ def init_w(
     e2c = grid.get_connectivity(dims.E2C).ndarray
 
     z_grad_e = generic_math_operations_array_ns.compute_directional_derivative_on_edges(
-        z_ifc[:, nlev], e2c, inv_dual_edge_length, lb_e, ub_e, grid.num_edges, array_ns
+        cell_field=z_ifc[:, nlev],
+        e2c=e2c,
+        inv_dual_edge_length=inv_dual_edge_length,
+        lb_e=lb_e,
+        ub_e=ub_e,
+        num_edges=grid.num_edges,
     )
     z_wsfc_e = vn[:, nlev - 1] * z_grad_e
 
     z_wsfc_c = generic_math_operations_array_ns.interpolate_edges_to_cell(
-        z_wsfc_e,
-        c2e,
-        e2c,
-        edge_cell_distance,
-        primal_edge_length,
-        cell_area,
-        ub_c,
-        grid.num_cells,
-        array_ns,
+        edge_field=z_wsfc_e,
+        c2e=c2e,
+        e2c=e2c,
+        edge_cell_length=edge_cell_distance,
+        primal_edge_length=primal_edge_length,
+        cell_area=cell_area,
+        ub_c=ub_c,
+        num_cells=grid.num_cells,
     )
 
     w = array_ns.zeros((grid.num_cells, nlev + 1))

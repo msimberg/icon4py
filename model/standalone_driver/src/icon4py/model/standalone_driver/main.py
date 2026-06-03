@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 
 
 def main(
+    *,
     grid_file_path: Annotated[pathlib.Path, typer.Option(help="Grid file path.")],
     # it may be better to split device from backend,
     # or only asking for cpu or gpu and the best backend for perfornamce is handled inside icon4py,
@@ -88,6 +89,10 @@ def main(
         interpolation_field_source=icon4py_driver.static_field_factories.interpolation_field_source,
         metrics_field_source=icon4py_driver.static_field_factories.metrics_field_source,
         backend=icon4py_driver.backend,
+        lowest_layer_thickness=icon4py_driver.vertical_grid_config.lowest_layer_thickness,
+        model_top_height=icon4py_driver.vertical_grid_config.model_top_height,
+        stretch_factor=icon4py_driver.vertical_grid_config.stretch_factor,
+        damping_height=icon4py_driver.vertical_grid_config.rayleigh_damping_height,
         exchange=icon4py_driver.exchange,
     )
 

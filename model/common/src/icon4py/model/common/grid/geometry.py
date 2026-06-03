@@ -21,7 +21,6 @@ from icon4py.model.common import (
 )
 from icon4py.model.common.decomposition import definitions as decomposition
 from icon4py.model.common.grid import (
-    base,
     geometry_attributes as attrs,
     geometry_stencils as stencils,
     grid_manager as gm,
@@ -29,7 +28,7 @@ from icon4py.model.common.grid import (
     horizontal as h_grid,
     icon,
 )
-from icon4py.model.common.math import helpers as math_helpers, xp_utils
+from icon4py.model.common.math import coordinate_transformations as coord_trans, utils as math_utils
 from icon4py.model.common.states import factory, model, utils as state_utils
 from icon4py.model.common.utils import data_allocation as data_alloc, device_utils
 
@@ -82,13 +81,14 @@ class GridGeometry(factory.FieldSource):
 
     def __init__(
         self,
+        *,
         grid: icon.IconGrid,
         decomposition_info: decomposition.DecompositionInfo,
         backend: gtx_typing.Backend | None,
         coordinates: gm.CoordinateDict,
         extra_fields: gm.GeometryDict,
         metadata: dict[str, model.FieldMetaData],
-        exchange: decomposition.ExchangeRuntime = decomposition.single_node_exchange,
+        exchange: decomposition.ExchangeRuntime,
         global_reductions: decomposition.Reductions = decomposition.single_node_reductions,
     ) -> None:
         """
@@ -109,7 +109,7 @@ class GridGeometry(factory.FieldSource):
         self._grid = grid
         self._decomposition_info = decomposition_info
         self._attrs = metadata
-        self._geometry_type: base.GeometryType = grid.global_properties.geometry_type
+        self._geometry_type: icon.GeometryType = grid.grid_params.geometry_type
         self._edge_domain = h_grid.domain(dims.EdgeDim)
         self._exchange = exchange
         self._global_reductions = global_reductions
@@ -126,7 +126,7 @@ class GridGeometry(factory.FieldSource):
             attrs.VERTEX_LON: coordinates[dims.VertexDim]["lon"],
             attrs.VERTEX_LAT: coordinates[dims.VertexDim]["lat"],
         }
-        if self._geometry_type == base.GeometryType.TORUS:
+        if self._geometry_type == icon.GeometryType.TORUS:
             coordinates_[attrs.CELL_CENTER_X] = coordinates[dims.CellDim]["x"]
             coordinates_[attrs.CELL_CENTER_Y] = coordinates[dims.CellDim]["y"]
             coordinates_[attrs.CELL_CENTER_Z] = coordinates[dims.CellDim]["z"]
@@ -137,12 +137,12 @@ class GridGeometry(factory.FieldSource):
             coordinates_[attrs.VERTEX_Y] = coordinates[dims.VertexDim]["y"]
             coordinates_[attrs.VERTEX_Z] = coordinates[dims.VertexDim]["z"]
 
-        coordinate_provider = factory.PrecomputedFieldProvider(coordinates_)
+        coordinate_provider = factory.PrecomputedFieldProvider(fields=coordinates_)
         self.register_provider(coordinate_provider)
 
         # Setup input fields
         input_fields_provider = factory.PrecomputedFieldProvider(
-            {
+            fields={
                 # TODO(halungge): rescaled by grid_length_rescale_factor (mo_grid_tools.f90)
                 attrs.EDGE_LENGTH: extra_fields[gridfile.GeometryName.EDGE_LENGTH],
                 attrs.DUAL_EDGE_LENGTH: extra_fields[gridfile.GeometryName.DUAL_EDGE_LENGTH],
@@ -187,7 +187,7 @@ class GridGeometry(factory.FieldSource):
         name = meta["standard_name"]
         self._attrs.update({name: meta})
         provider = factory.ProgramFieldProvider(
-            func=math_helpers.compute_inverse_on_edges,
+            func=math_utils.compute_inverse_on_edges,
             deps={"f": field_name},
             fields={"f_inverse": name},
             domain={
@@ -209,7 +209,7 @@ class GridGeometry(factory.FieldSource):
         self.register_provider(inverse_dual_edge_length)
 
         match self._geometry_type:
-            case base.GeometryType.ICOSAHEDRON:
+            case icon.GeometryType.ICOSAHEDRON:
                 self._register_cartesian_coordinates_icosahedron()
 
                 vertex_vertex_distance = factory.ProgramFieldProvider(
@@ -225,7 +225,7 @@ class GridGeometry(factory.FieldSource):
                         "vertex_lat": attrs.VERTEX_LAT,
                         "vertex_lon": attrs.VERTEX_LON,
                     },
-                    params={"radius": self._grid.global_properties.radius},
+                    params={"radius": self._grid.grid_params.radius},
                     do_exchange=True,
                 )
                 self.register_provider(vertex_vertex_distance)
@@ -247,7 +247,7 @@ class GridGeometry(factory.FieldSource):
 
                 self._register_normals_and_tangents_icosahedron()
 
-            case base.GeometryType.TORUS:
+            case icon.GeometryType.TORUS:
                 vertex_vertex_distance = factory.ProgramFieldProvider(
                     func=stencils.compute_distance_of_far_edges_in_diamond_torus,
                     domain={
@@ -262,15 +262,15 @@ class GridGeometry(factory.FieldSource):
                         "vertex_y": attrs.VERTEX_Y,
                     },
                     params={
-                        "domain_length": self._grid.global_properties.domain_length,
-                        "domain_height": self._grid.global_properties.domain_height,
+                        "domain_length": self._grid.grid_params.domain_length,
+                        "domain_height": self._grid.grid_params.domain_height,
                     },
                     do_exchange=True,
                 )
                 self.register_provider(vertex_vertex_distance)
 
                 coriolis_param = factory.PrecomputedFieldProvider(
-                    {
+                    fields={
                         # TODO(jcanton): this constant (0.0) should eventually
                         # come from the config
                         "coriolis_parameter": stencils.coriolis_parameter_on_edges_torus(
@@ -310,10 +310,7 @@ class GridGeometry(factory.FieldSource):
         self.register_provider(edge_areas)
 
         mean_edge_length_np = factory.NumpyDataProvider(
-            func=functools.partial(
-                self._global_reductions.mean,
-                array_ns=self._xp,
-            ),
+            func=self._global_reductions.mean,
             domain=(),
             deps={
                 "buffer": attrs.EDGE_LENGTH,
@@ -323,10 +320,7 @@ class GridGeometry(factory.FieldSource):
         self.register_provider(mean_edge_length_np)
 
         mean_dual_edge_length_np = factory.NumpyDataProvider(
-            func=functools.partial(
-                self._global_reductions.mean,
-                array_ns=self._xp,
-            ),
+            func=self._global_reductions.mean,
             domain=(),
             deps={
                 "buffer": attrs.DUAL_EDGE_LENGTH,
@@ -336,10 +330,7 @@ class GridGeometry(factory.FieldSource):
         self.register_provider(mean_dual_edge_length_np)
 
         mean_cell_area_np = factory.NumpyDataProvider(
-            func=functools.partial(
-                self._global_reductions.mean,
-                array_ns=self._xp,
-            ),
+            func=self._global_reductions.mean,
             domain=(),
             deps={
                 "buffer": attrs.CELL_AREA,
@@ -349,10 +340,7 @@ class GridGeometry(factory.FieldSource):
         self.register_provider(mean_cell_area_np)
 
         mean_dual_cell_area_np = factory.NumpyDataProvider(
-            func=functools.partial(
-                self._global_reductions.mean,
-                array_ns=self._xp,
-            ),
+            func=self._global_reductions.mean,
             domain=(),
             deps={
                 "buffer": attrs.DUAL_AREA,
@@ -362,7 +350,7 @@ class GridGeometry(factory.FieldSource):
         self.register_provider(mean_dual_cell_area_np)
 
         characteristic_length_np = factory.NumpyDataProvider(
-            func=xp_utils.compute_sqrt,
+            func=math_utils.compute_sqrt,
             domain=(),
             deps={
                 "input_val": attrs.MEAN_DUAL_AREA,
@@ -403,7 +391,7 @@ class GridGeometry(factory.FieldSource):
 
         # 2. primal_normals: gridfile%zonal_normal_primal_edge - edges%primal_normal%v1, gridfile%meridional_normal_primal_edge - edges%primal_normal%v2,
         normal_uv = factory.ProgramFieldProvider(
-            func=math_helpers.compute_zonal_and_meridional_components_on_edges,
+            func=coord_trans.compute_zonal_and_meridional_components_on_edges,
             deps={
                 "lat": attrs.EDGE_LAT,
                 "lon": attrs.EDGE_LON,
@@ -426,7 +414,7 @@ class GridGeometry(factory.FieldSource):
         self.register_provider(normal_uv)
 
         dual_uv = factory.ProgramFieldProvider(
-            func=math_helpers.compute_zonal_and_meridional_components_on_edges,
+            func=coord_trans.compute_zonal_and_meridional_components_on_edges,
             deps={
                 "lat": attrs.EDGE_LAT,
                 "lon": attrs.EDGE_LON,
@@ -477,7 +465,7 @@ class GridGeometry(factory.FieldSource):
             do_exchange=False,
         )
         normal_vert_wrapper = SparseFieldProviderWrapper(
-            normal_vert,
+            field_provider=normal_vert,
             target_dims=attrs.attrs[attrs.EDGE_NORMAL_VERTEX_U]["dims"],
             fields=(attrs.EDGE_NORMAL_VERTEX_U, attrs.EDGE_NORMAL_VERTEX_V),
             pairs=(
@@ -512,7 +500,7 @@ class GridGeometry(factory.FieldSource):
             do_exchange=False,
         )
         normal_cell_wrapper = SparseFieldProviderWrapper(
-            normal_cell,
+            field_provider=normal_cell,
             target_dims=attrs.attrs[attrs.EDGE_NORMAL_CELL_U]["dims"],
             fields=(attrs.EDGE_NORMAL_CELL_U, attrs.EDGE_NORMAL_CELL_V),
             pairs=(("u_cell_1", "u_cell_2"), ("v_cell_1", "v_cell_2")),
@@ -549,7 +537,7 @@ class GridGeometry(factory.FieldSource):
             do_exchange=False,
         )
         tangent_vert_wrapper = SparseFieldProviderWrapper(
-            tangent_vert,
+            field_provider=tangent_vert,
             target_dims=attrs.attrs[attrs.EDGE_TANGENT_VERTEX_U]["dims"],
             fields=(attrs.EDGE_TANGENT_VERTEX_U, attrs.EDGE_TANGENT_VERTEX_V),
             pairs=(
@@ -584,7 +572,7 @@ class GridGeometry(factory.FieldSource):
             do_exchange=False,
         )
         tangent_cell_wrapper = SparseFieldProviderWrapper(
-            tangent_cell,
+            field_provider=tangent_cell,
             target_dims=attrs.attrs[attrs.EDGE_TANGENT_CELL_U]["dims"],
             fields=(attrs.EDGE_TANGENT_CELL_U, attrs.EDGE_TANGENT_CELL_V),
             pairs=(("u_cell_1", "u_cell_2"), ("v_cell_1", "v_cell_2")),
@@ -623,8 +611,8 @@ class GridGeometry(factory.FieldSource):
                 )
             },
             params={
-                "domain_length": self._grid.global_properties.domain_length,
-                "domain_height": self._grid.global_properties.domain_height,
+                "domain_length": self._grid.grid_params.domain_length,
+                "domain_height": self._grid.grid_params.domain_height,
             },
             do_exchange=False,
         )
@@ -632,7 +620,7 @@ class GridGeometry(factory.FieldSource):
 
         # primal_normal_vert, primal_normal_cell
         normal_vert_wrapper = SparseFieldProviderWrapper(
-            tangent_normal_coordinates,
+            field_provider=tangent_normal_coordinates,
             target_dims=attrs.attrs[attrs.EDGE_NORMAL_VERTEX_U]["dims"],
             fields=(attrs.EDGE_NORMAL_VERTEX_U, attrs.EDGE_NORMAL_VERTEX_V),
             pairs=(
@@ -654,7 +642,7 @@ class GridGeometry(factory.FieldSource):
         self.register_provider(normal_vert_wrapper)
 
         normal_cell_wrapper = SparseFieldProviderWrapper(
-            tangent_normal_coordinates,
+            field_provider=tangent_normal_coordinates,
             target_dims=attrs.attrs[attrs.EDGE_NORMAL_CELL_U]["dims"],
             fields=(attrs.EDGE_NORMAL_CELL_U, attrs.EDGE_NORMAL_CELL_V),
             pairs=(
@@ -667,7 +655,7 @@ class GridGeometry(factory.FieldSource):
 
         # dual normals: the dual normals are the edge tangents
         tangent_vert_wrapper = SparseFieldProviderWrapper(
-            tangent_normal_coordinates,
+            field_provider=tangent_normal_coordinates,
             target_dims=attrs.attrs[attrs.EDGE_TANGENT_VERTEX_U]["dims"],
             fields=(attrs.EDGE_TANGENT_VERTEX_U, attrs.EDGE_TANGENT_VERTEX_V),
             pairs=(
@@ -689,7 +677,7 @@ class GridGeometry(factory.FieldSource):
         self.register_provider(tangent_vert_wrapper)
 
         tangent_cell_wrapper = SparseFieldProviderWrapper(
-            tangent_normal_coordinates,
+            field_provider=tangent_normal_coordinates,
             target_dims=attrs.attrs[attrs.EDGE_TANGENT_CELL_U]["dims"],
             fields=(attrs.EDGE_TANGENT_CELL_U, attrs.EDGE_TANGENT_CELL_V),
             pairs=(
@@ -703,7 +691,7 @@ class GridGeometry(factory.FieldSource):
     def _register_cartesian_coordinates_icosahedron(self) -> None:
         """Register Cartesian coordinate conversions for icosahedron geometry."""
         cartesian_vertices = factory.EmbeddedFieldOperatorProvider(
-            func=math_helpers.geographical_to_cartesian_on_vertices.with_backend(self.backend),
+            func=coord_trans.geographical_to_cartesian_on_vertices.with_backend(self.backend),
             domain={
                 dims.VertexDim: (
                     h_grid.vertex_domain(h_grid.Zone.LOCAL),
@@ -723,7 +711,7 @@ class GridGeometry(factory.FieldSource):
         )
         self.register_provider(cartesian_vertices)
         cartesian_edge_centers = factory.EmbeddedFieldOperatorProvider(
-            func=math_helpers.geographical_to_cartesian_on_edges.with_backend(self.backend),
+            func=coord_trans.geographical_to_cartesian_on_edges.with_backend(self.backend),
             domain={
                 dims.EdgeDim: (
                     h_grid.edge_domain(h_grid.Zone.LOCAL),
@@ -743,7 +731,7 @@ class GridGeometry(factory.FieldSource):
         )
         self.register_provider(cartesian_edge_centers)
         cartesian_cell_centers = factory.EmbeddedFieldOperatorProvider(
-            func=math_helpers.geographical_to_cartesian_on_cells.with_backend(self.backend),
+            func=coord_trans.geographical_to_cartesian_on_cells.with_backend(self.backend),
             domain={
                 dims.CellDim: (
                     h_grid.cell_domain(h_grid.Zone.LOCAL),
@@ -792,6 +780,7 @@ class GridGeometry(factory.FieldSource):
 class SparseFieldProviderWrapper(factory.FieldProvider, factory.NeedsExchange):
     def __init__(
         self,
+        *,
         field_provider: factory.FieldProvider,
         target_dims: Sequence[gtx.Dimension],
         fields: Sequence[str],
@@ -808,6 +797,7 @@ class SparseFieldProviderWrapper(factory.FieldProvider, factory.NeedsExchange):
 
     def __call__(
         self,
+        *,
         field_name: str,
         field_src: factory.FieldSource | None,
         backend: gtx_typing.Backend | None,
@@ -819,7 +809,16 @@ class SparseFieldProviderWrapper(factory.FieldProvider, factory.NeedsExchange):
             input_fields = []
             for p in self._pairs:
                 t = tuple(
-                    [self._wrapped_provider(name, field_src, backend, grid, exchange) for name in p]
+                    [
+                        self._wrapped_provider(
+                            field_name=name,
+                            field_src=field_src,
+                            backend=backend,
+                            grid=grid,
+                            exchange=exchange,
+                        )
+                        for name in p
+                    ]
                 )
                 input_fields.append(t)
             sparse_fields = self.func(input_fields, backend=backend)
@@ -864,6 +863,7 @@ def as_sparse_field(
 
 
 def create_auxiliary_coordinate_arrays_for_orientation(
+    *,
     grid: icon.IconGrid,
     cell_lat: fa.CellField[ta.wpfloat],
     cell_lon: fa.CellField[ta.wpfloat],
