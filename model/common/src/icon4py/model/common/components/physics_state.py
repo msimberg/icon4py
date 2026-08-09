@@ -41,7 +41,3 @@ class TypedPhysicsState(Protocol[InputT_co, OutputT_contra]):
         outputs: OutputT_contra,
         dtime: datetime.timedelta,
     ) -> None: ...
-
-
-# Backward-compatible alias removed once all callers migrate to TypedPhysicsState.
-PhysicsState = TypedPhysicsState

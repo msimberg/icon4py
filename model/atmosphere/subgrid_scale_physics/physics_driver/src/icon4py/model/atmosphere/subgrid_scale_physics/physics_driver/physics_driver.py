@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.composition import (
     ForcingMode,
@@ -23,20 +23,23 @@ from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.process_time_
     ProcessTimeControl,
 )
 from icon4py.model.common.components.components import Component
-from icon4py.model.common.components.physics_state import PhysicsState
+from icon4py.model.common.components.physics_state import TypedPhysicsState
 from icon4py.model.common.composition import Step
 
 
 if TYPE_CHECKING:
     from icon4py.model.common.states import prognostic_state, tracer_states
 
+InputT = TypeVar("InputT")
+OutputT = TypeVar("OutputT")
+
 
 @dataclasses.dataclass
-class PhysicsProcess:
+class PhysicsProcess(Generic[InputT, OutputT]):
     """A registered physics process: a component, its state adapter, and its time control.
 
     The component is the per-process adapter (e.g. ``MuphysComponent``); it
-    implements the generic ``Component`` protocol, which is how the driver types it.
+    implements the typed ``Component`` protocol, which is how the driver types it.
     The state adapter is process-specific (it translates the prognostic state to/from
     *this* component's contract), so it is bundled per process rather than shared.
 
@@ -46,8 +49,8 @@ class PhysicsProcess:
     """
 
     name: str
-    component: Component
-    state: PhysicsState
+    component: Component[InputT, OutputT]
+    state: TypedPhysicsState[InputT, OutputT]
     time_control: ProcessTimeControl
     forcing_mode: ForcingMode = ForcingMode.APPLY
 
@@ -57,7 +60,7 @@ class PhysicsDriver:
 
     def __init__(
         self,
-        processes: list[PhysicsProcess],
+        processes: list[PhysicsProcess[Any, Any]],
         dtime: datetime.timedelta,
     ) -> None:
         self._processes = processes

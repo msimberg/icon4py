@@ -476,7 +476,7 @@ def initialize_granules(
     if config.muphys is not None:
         muphys_process = physics_driver.PhysicsProcess(
             name="muphys",
-            component=muphys_component.MuphysComponent(  # type: ignore[arg-type]
+            component=muphys_component.MuphysComponent(
                 grid=grid,
                 dtime=config.driver.dtime,
                 qnc=config.muphys.qnc,

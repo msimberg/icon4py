@@ -13,7 +13,10 @@ import datetime
 import pytest
 from gt4py import next as gtx
 
-from icon4py.model.atmosphere.subgrid_scale_physics.muphys.component import MuphysComponent
+from icon4py.model.atmosphere.subgrid_scale_physics.muphys.component import (
+    MuphysComponent,
+    MuphysInput,
+)
 from icon4py.model.atmosphere.subgrid_scale_physics.muphys.core.definitions import SPECIES
 from icon4py.model.atmosphere.subgrid_scale_physics.muphys.driver import common, run_full_muphys
 from icon4py.model.common import dimension as dims, model_backends
@@ -71,20 +74,19 @@ def test_granule_matches_direct_muphys(
         backend=backend_like,
         step=muphys_program,
     )
-    state = {
-        "dz": graupel_input.dz,
-        "te": graupel_input.t,
-        "p": graupel_input.p,
-        "rho": graupel_input.rho,
-        "qv": graupel_input.qv,
-        "qc": graupel_input.qc,
-        "qr": graupel_input.qr,
-        "qs": graupel_input.qs,
-        "qi": graupel_input.qi,
-        "qg": graupel_input.qg,
-    }
-    out = granule(state, _T0)
-
+    inputs = MuphysInput(
+        dz=graupel_input.dz,
+        te=graupel_input.t,
+        p=graupel_input.p,
+        rho=graupel_input.rho,
+        qv=graupel_input.qv,
+        qc=graupel_input.qc,
+        qr=graupel_input.qr,
+        qs=graupel_input.qs,
+        qi=graupel_input.qi,
+        qg=graupel_input.qg,
+    )
+    out = granule.run(inputs)
     direct = common.GraupelOutput.allocate(
         allocator=allocator,
         domain=gtx.domain({dims.CellDim: graupel_input.ncells, dims.KDim: graupel_input.nlev}),
@@ -112,16 +114,16 @@ def test_granule_matches_direct_muphys(
 
     # Reconstructing the updated state as ``old + tendency*dt`` is not bit-exact
     assert test_utils.dallclose(
-        te0 + out["tend_temperature"].asnumpy() * dt, direct.t.asnumpy(), atol=1e-15
+        te0 + out.tend_temperature.asnumpy() * dt, direct.t.asnumpy(), atol=1e-15
     )
     for s in SPECIES:
-        applied = q0[s] + out[f"tend_q{s}"].asnumpy() * dt
+        applied = q0[s] + getattr(out, f"tend_q{s}").asnumpy() * dt
         assert test_utils.dallclose(applied, getattr(direct, f"q{s}").asnumpy(), atol=1e-15)
 
-    assert test_utils.dallclose(out["pflx"].asnumpy(), direct.pflx.asnumpy(), rtol=0.0, atol=0.0)
+    assert test_utils.dallclose(out.pflx.asnumpy(), direct.pflx.asnumpy(), rtol=0.0, atol=0.0)
     for name in ("pr", "ps", "pi", "pg", "pre"):
         assert test_utils.dallclose(
-            out[name].asnumpy()[:, -1],
+            getattr(out, name).asnumpy()[:, -1],
             getattr(direct, name).asnumpy()[:, -1],
             rtol=0.0,
             atol=0.0,

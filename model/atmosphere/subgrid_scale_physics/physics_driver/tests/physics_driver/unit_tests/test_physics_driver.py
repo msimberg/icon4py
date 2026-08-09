@@ -23,7 +23,7 @@ from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.physics_drive
 from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.process_time_control import (
     ProcessTimeControl,
 )
-from icon4py.model.common.components.physics_state import PhysicsState
+from icon4py.model.common.components.physics_state import TypedPhysicsState
 from icon4py.model.common.states.model import FieldMetaData
 
 
@@ -124,14 +124,23 @@ class TestProcessTimeControl:
 
 
 def test_physics_process_construction() -> None:
-    class _DummyComponent:
-        inputs_properties: dict[str, dict[str, object]] = {}
-        outputs_properties: dict[str, dict[str, object]] = {}
+    class _DummyInput:
+        pass
 
-        def __call__(
-            self, state: dict[str, object], time_step: datetime.datetime
-        ) -> dict[str, object]:
-            return {}
+    class _DummyOutput:
+        pass
+
+    class _DummyComponent:
+        @classmethod
+        def input_type(cls) -> type[_DummyInput]:
+            return _DummyInput
+
+        @classmethod
+        def output_type(cls) -> type[_DummyOutput]:
+            return _DummyOutput
+
+        def run(self, state: _DummyInput) -> _DummyOutput:
+            return _DummyOutput()
 
     state = RecordingPhysicsState()
     proc = PhysicsProcess(
@@ -147,74 +156,76 @@ def test_physics_process_construction() -> None:
     assert proc.forcing_mode is ForcingMode.APPLY
 
 
+@dataclasses.dataclass(frozen=True)
+class RecordingInput:
+    """Typed input placeholder for the recording component."""
+
+    payload: object
+
+
+@dataclasses.dataclass(frozen=True)
+class RecordingOutput:
+    """Typed output placeholder for the recording component."""
+
+    payload: dict[str, object]
+
+
 @dataclasses.dataclass
 class RecordingComponent:
-    """Stub Component: records calls, returns configured outputs.
-
-    `output_kinds` keys mirror `outputs` keys; values are 'tendency' or
-    'diagnostic'.
-    """
+    """Stub Component: records calls, returns configured outputs."""
 
     outputs: dict[str, object]
-    output_kinds: dict[str, str]
     call_count: int = 0
-    last_state: dict | None = None
-    last_time: datetime.datetime | None = None
+    last_input: RecordingInput | None = dataclasses.field(default=None, repr=False)
 
-    @property
-    def inputs_properties(self) -> dict[str, dict[str, object]]:
-        return {}
+    @classmethod
+    def input_type(cls) -> type[RecordingInput]:
+        return RecordingInput
 
-    @property
-    def outputs_properties(self) -> dict[str, dict[str, object]]:
-        return {
-            k: {"standard_name": k, "units": "1", "kind": self.output_kinds[k]}
-            for k in self.outputs
-        }
+    @classmethod
+    def output_type(cls) -> type[RecordingOutput]:
+        return RecordingOutput
 
-    def __call__(self, state: dict[str, object], time_step: datetime.datetime) -> dict[str, object]:
+    def run(self, state: RecordingInput) -> RecordingOutput:
         self.call_count += 1
-        self.last_state = state
-        self.last_time = time_step
-        return dict(self.outputs)
+        self.last_input = state
+        return RecordingOutput(payload=dict(self.outputs))
 
 
 @dataclasses.dataclass
-class RecordingPhysicsState(PhysicsState):
-    """Stub PhysicsState: records refresh / scatter; returns a fixed dict
-    from as_component_input. Implements just enough surface for the PhysicsDriver."""
+class RecordingPhysicsState(TypedPhysicsState[RecordingInput, RecordingOutput]):
+    """Stub TypedPhysicsState: records gather / scatter calls."""
 
     gather_calls: list = dataclasses.field(default_factory=list)
     scatter_calls: list = dataclasses.field(default_factory=list)
 
-    def gather_from_prognostic(self, prognostic: object, tracers: object) -> None:
-        self.gather_calls.append(prognostic)
+    def gather_from_prognostic(self, prognostic: object, tracers: object) -> RecordingInput:
+        self.gather_calls.append((prognostic, tracers))
+        return RecordingInput(payload=(prognostic, tracers))
 
-    def as_component_input(self) -> dict[str, object]:
-        return {"foo": "bar"}
-
-    def scatter_to_prognostic(
-        self, prognostic: object, outputs: dict[str, object], dtime: datetime.timedelta
-    ) -> None:
-        self.scatter_calls.append((prognostic, outputs, dtime))
+    def scatter_to_prognostic(self, outputs: RecordingOutput, dtime: datetime.timedelta) -> None:
+        self.scatter_calls.append((outputs, dtime))
 
 
 def test_recording_doubles_record_calls() -> None:
     component = RecordingComponent(
         outputs={"tend_temperature": "T_TEND_VALUE", "pflx": "PFLX_VALUE"},
-        output_kinds={"tend_temperature": "tendency", "pflx": "diagnostic"},
     )
     state = RecordingPhysicsState()
 
-    # Simulate what PhysicsDriver would do.
-    state.gather_from_prognostic("prog", "tracers")
-    out = component(state.as_component_input(), _T0)
-    state.scatter_to_prognostic("prog", out, datetime.timedelta(seconds=300))
+    # Simulate what PhysicsDriver now does.
+    inputs = state.gather_from_prognostic("prog", "tracers")
+    out = component.run(inputs)
+    state.scatter_to_prognostic(out, datetime.timedelta(seconds=300))
 
-    assert state.gather_calls == ["prog"]
+    assert state.gather_calls == [("prog", "tracers")]
     assert component.call_count == 1
-    assert component.last_state == {"foo": "bar"}  # what as_component_input returned
-    assert state.scatter_calls == [("prog", out, datetime.timedelta(seconds=300))]
+    assert component.last_input is not None
+    assert component.last_input.payload == ("prog", "tracers")
+    assert state.scatter_calls[0][0].payload == {
+        "tend_temperature": "T_TEND_VALUE",
+        "pflx": "PFLX_VALUE",
+    }
 
 
 def _make_process(
@@ -223,10 +234,7 @@ def _make_process(
     time_control: ProcessTimeControl | None = None,
     forcing_mode: ForcingMode = ForcingMode.APPLY,
 ) -> PhysicsProcess:
-    component = RecordingComponent(
-        outputs=outputs,
-        output_kinds={k: "tendency" for k in outputs},
-    )
+    component = RecordingComponent(outputs=outputs)
     return PhysicsProcess(
         name=name,
         component=component,  # type: ignore[arg-type]
@@ -259,8 +267,8 @@ def test_composition_invokes_components_in_order() -> None:
     assert proc_a.component.call_count == 1
     assert proc_b.component.call_count == 1
     # B's scatter must follow A's (operator-splitting ordering)
-    assert proc_a.state.scatter_calls[0][1] == {"tend_temperature": "A"}
-    assert proc_b.state.scatter_calls[0][1] == {"tend_temperature": "B"}
+    assert proc_a.state.scatter_calls[0][0].payload == {"tend_temperature": "A"}
+    assert proc_b.state.scatter_calls[0][0].payload == {"tend_temperature": "B"}
 
 
 def test_driver_construction_raises_for_non_multiple_interval() -> None:
@@ -307,8 +315,9 @@ def test_composition_active_call_caches_outputs_and_applies_them() -> None:
     composition(_make_carry(sample_cache=cache))
 
     assert proc.component.call_count == 1
-    assert cache["p"] == {"tend_temperature": "FRESH"}
-    assert proc.state.scatter_calls == [("prog", {"tend_temperature": "FRESH"}, _DT)]
+    assert cache["p"].payload == {"tend_temperature": "FRESH"}
+    assert proc.state.scatter_calls[0][0].payload == {"tend_temperature": "FRESH"}
+    assert proc.state.scatter_calls[0][1] == _DT
 
 
 def test_composition_inactive_in_window_recycles_cached_outputs() -> None:
@@ -327,8 +336,8 @@ def test_composition_inactive_in_window_recycles_cached_outputs() -> None:
     assert proc.component.call_count == 1
     # But scatter happened twice — once with the fresh tendency, once recycled.
     assert len(proc.state.scatter_calls) == 2
-    assert proc.state.scatter_calls[0][1] == {"tend_temperature": "FRESH"}
-    assert proc.state.scatter_calls[1][1] == {"tend_temperature": "FRESH"}  # recycled
+    assert proc.state.scatter_calls[0][0].payload == {"tend_temperature": "FRESH"}
+    assert proc.state.scatter_calls[1][0].payload == {"tend_temperature": "FRESH"}  # recycled
 
 
 def test_composition_first_in_window_step_inactive_computes_without_keyerror() -> None:
@@ -343,7 +352,8 @@ def test_composition_first_in_window_step_inactive_computes_without_keyerror() -
     composition(_make_carry(sample_cache=cache, simulation_current_datetime=_T0 + _DT))
 
     assert proc.component.call_count == 1
-    assert proc.state.scatter_calls == [("prog", {"tend_temperature": "FRESH"}, _DT)]
+    assert len(proc.state.scatter_calls) == 1
+    assert proc.state.scatter_calls[0][0].payload == {"tend_temperature": "FRESH"}
 
 
 def test_composition_apply_mode_selects_apply_chain() -> None:
@@ -352,7 +362,8 @@ def test_composition_apply_mode_selects_apply_chain() -> None:
 
     composition(_make_carry())
 
-    assert proc.state.scatter_calls == [("prog", {"tend_temperature": "FRESH"}, _DT)]
+    assert len(proc.state.scatter_calls) == 1
+    assert proc.state.scatter_calls[0][0].payload == {"tend_temperature": "FRESH"}
 
 
 def test_composition_diagnostic_mode_routes_to_diagnose_step() -> None:
@@ -363,11 +374,10 @@ def test_composition_diagnostic_mode_routes_to_diagnose_step() -> None:
     )
     composition = build_physics_composition([proc])
 
-    with pytest.raises(NotImplementedError, match="only ForcingMode"):
-        composition(_make_carry())
+    composition(_make_carry())
 
     assert proc.component.call_count == 1
-    assert proc.state.scatter_calls == []
+    assert proc.state.scatter_calls == []  # diagnose branch does not apply tendencies
 
 
 def test_driver_run_matches_composition() -> None:

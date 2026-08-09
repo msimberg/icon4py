@@ -6,6 +6,8 @@
 # Please, refer to the LICENSE file in the root directory.
 # SPDX-License-Identifier: BSD-3-Clause
 
+"""Typed physics-state boundary for the muphys component."""
+
 from __future__ import annotations
 
 import datetime
@@ -13,9 +15,12 @@ from typing import TYPE_CHECKING
 
 import gt4py.next as gtx
 
+from icon4py.model.atmosphere.subgrid_scale_physics.muphys.component import (
+    MuphysInput,
+    MuphysOutput,
+)
 from icon4py.model.atmosphere.subgrid_scale_physics.muphys.core.definitions import (
     PRECIP_DIAGNOSTICS,
-    SPECIES,
 )
 from icon4py.model.common import (
     dimension as dims,
@@ -23,7 +28,7 @@ from icon4py.model.common import (
     model_options,
     type_alias as ta,
 )
-from icon4py.model.common.components.physics_state import PhysicsState
+from icon4py.model.common.components.physics_state import TypedPhysicsState
 from icon4py.model.common.diagnostic_calculations.stencils import (
     calculate_tendency,
     diagnose_pressure,
@@ -43,26 +48,14 @@ if TYPE_CHECKING:
     from icon4py.model.common.states import factory, prognostic_state as prognostics, tracer_states
 
 
-class State(PhysicsState):
+class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
     """The muphys physics State adapter.
 
-    Bridges the dycore's prognostic state and the muphys Component contract.
-    Two independent axes describe each field:
-
-    muphys role
-      - input      : fed to muphys via ``as_component_input`` -- dz, rho, q, te, p
-      - returned   : muphys updates it; te/q changes come back as tendencies. tend_q
-                     updates the tracers; tend_T drives the exner + theta_v update
-                     (via the exact EOS, mirroring ICON's phy2dyn coupling).
-                     rho and p are input-only.
-      - internal   : not a muphys fields -- tv, pressure_on_cells_half_levels -- used only
-                     to diagnose p and to recompute exner/theta_v from tend_T.
-      - diagnostic : a muphys output stored for reporting -- pflx, pr, ps, pi, pg, pre.
-
-    memory ownership
-      - reference  : a pointer into the dycore state, no copy -- dz, rho, q.
-      - owned      : a buffer allocated once here and overwritten in place each
-                     step -- te, p, tv, pressure_on_cells_half_levels, and the scratch buffers.
+    Bridges the dycore's prognostic state and the typed ``MuphysComponent``
+    contract. ``gather_from_prognostic`` builds a ``MuphysInput`` from the
+    prognostic state and diagnosed fields; ``scatter_to_prognostic`` applies the
+    returned tendencies to the prognostic state and stores the precip
+    diagnostics.
     """
 
     def __init__(
@@ -132,6 +125,7 @@ class State(PhysicsState):
 
         self.dz = metrics.get(metrics_attributes.DDQZ_Z_FULL)
         self.rho: fa.CellKField[ta.wpfloat] | None = None
+        self._prognostic: prognostics.PrognosticState | None = None
         self._tracers: tracer_states.TracerState | None = None
         self.te = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=backend)
         self.p = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=backend)
@@ -143,35 +137,48 @@ class State(PhysicsState):
         # INTERNAL
         self._new_te = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=backend)
         self._tv_tendency = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=backend)
-        self._precip_diagnostics: dict[str, fa.CellKField[ta.wpfloat]] | None = None
+        self._last_outputs: MuphysOutput | None = None
 
     def gather_from_prognostic(
-        self, prognostic: prognostics.PrognosticState, tracers: tracer_states.TracerState
-    ) -> None:
-        """
-        prepare the input fields for muphys from the prognostic state. This includes:
-            - binding the references for rho and q (the muphys input fields that are stored prognostically in the dycore state)
-            - diagnosing the muphys input fields that aren't stored prognostically (te, p) from the prognostic state.
-        """
+        self,
+        prognostic: prognostics.PrognosticState,
+        tracers: tracer_states.TracerState,
+    ) -> MuphysInput:
+        """Build ``MuphysInput`` from the prognostic state and diagnosed fields."""
+        self._prognostic = prognostic
         self.rho = prognostic.rho
         # muphys needs all six moisture species; TracerState fields are optional (a
         # tracer may be inactive per TracerConfig), so fail loudly once here rather
         # than feed None into the microphysics.
-        missing = [f"q{s}" for s in SPECIES if getattr(tracers, f"q{s}") is None]
+        missing = [
+            f"q{s}" for s in ("v", "c", "r", "s", "i", "g") if getattr(tracers, f"q{s}") is None
+        ]
         if missing:
             raise ValueError(
                 f"muphys requires all moisture species active in the TracerState; missing: {missing}"
             )
         self._tracers = tracers
+        qv = tracers.qv
+        qc = tracers.qc
+        qr = tracers.qr
+        qs = tracers.qs
+        qi = tracers.qi
+        qg = tracers.qg
+        assert qv is not None, "qv must be active for muphys"
+        assert qc is not None, "qc must be active for muphys"
+        assert qr is not None, "qr must be active for muphys"
+        assert qs is not None, "qs must be active for muphys"
+        assert qi is not None, "qi must be active for muphys"
+        assert qg is not None, "qg must be active for muphys"
 
         # Diagnose virtual temperature and temperature (te is not stored prognostically).
         self._diagnose_temperature(
-            qv=tracers.qv,
-            qc=tracers.qc,
-            qi=tracers.qi,
-            qr=tracers.qr,
-            qs=tracers.qs,
-            qg=tracers.qg,
+            qv=qv,
+            qc=qc,
+            qi=qi,
+            qr=qr,
+            qs=qs,
+            qg=qg,
             theta_v=prognostic.theta_v,
             exner=prognostic.exner,
             virtual_temperature=self.tv,
@@ -197,27 +204,41 @@ class State(PhysicsState):
             pressure_ifc=self.pressure_on_cells_half_levels,
         )
 
-    def scatter_to_prognostic(  # type: ignore[override]
+        return MuphysInput(
+            dz=self.dz,
+            te=self.te,
+            p=self.p,
+            rho=self.rho,
+            qv=qv,
+            qc=qc,
+            qr=qr,
+            qs=qs,
+            qi=qi,
+            qg=qg,
+        )
+
+    def scatter_to_prognostic(
         self,
-        prognostic: prognostics.PrognosticState,
-        outputs: dict[str, fa.CellKField[ta.wpfloat]],
+        outputs: MuphysOutput,
         dtime: datetime.timedelta,
     ) -> None:
-        """Outbound translation: apply muphys output (tendencies) back to the prognostic state.
+        """Apply muphys output tendencies back to the prognostic state.
 
-        This will be called after calling the muphys.
-        output is got from muphys, and the tendencies in output will be applied to the prognostic state.
+        Moisture tendencies are applied to the tracers, the temperature tendency
+        drives an exner/theta_v update via the exact EOS, and precip outputs are
+        stored as diagnostics.
         """
+        assert self._prognostic is not None, "gather_from_prognostic must be called first"
         assert self._tracers is not None, "gather_from_prognostic must be called first"
         # convert to seconds only at the gt4py boundary (stencils take a scalar dt)
         dt_seconds = dtime.total_seconds()
         # 1. Apply moisture tendencies to the tracers (in place; tracers were bound in gather).
-        for s in SPECIES:
+        for s in ("v", "c", "r", "s", "i", "g"):
             tracer = getattr(self._tracers, f"q{s}")
             self._apply_tendency(
                 field_a=tracer,
                 coeff=dt_seconds,
-                field_b=outputs[f"tend_q{s}"],
+                field_b=getattr(outputs, f"tend_q{s}"),
                 output_field=tracer,
             )
 
@@ -225,7 +246,7 @@ class State(PhysicsState):
         self._apply_tendency(
             field_a=self.te,
             coeff=dt_seconds,
-            field_b=outputs["tend_temperature"],
+            field_b=outputs.tend_temperature,
             output_field=self._new_te,
         )
 
@@ -245,35 +266,21 @@ class State(PhysicsState):
         # Recompute exner via the exact EOS from the updated virtual temperature and
         # diagnose theta_v = Tv/exner, mirroring ICON's phy2dyn coupling
         # (mo_interface_iconam_aes.f90). The exner/rho/theta_v trio stays EOS-consistent.
-        # TODO (Yilu): in the AES strategy this phy2dyn update runs ONCE after ALL
-        # physics processes, not inside each process -- it moves to the driver's
-        # closing step with the deferred-application restructure
-        # Equivalent today with muphys as the only process.
         self._update_exner_and_theta_v(
             rho=self.rho,
             virtual_temperature=self.tv,
             virtual_temperature_tendency=self._tv_tendency,
             dtime=dt_seconds,
-            exner=prognostic.exner,
-            theta_v=prognostic.theta_v,
+            exner=self._prognostic.exner,
+            theta_v=self._prognostic.theta_v,
         )
 
-        # 3. Store precip diagnostics (references; never applied to prognostic state).
-        self._precip_diagnostics = {name: outputs[name] for name in PRECIP_DIAGNOSTICS}
-
-    def as_component_input(self) -> dict[str, fa.CellKField[ta.wpfloat]]:
-        """
-        Translate to the generic Component input dict (the 10 muphys input fields).
-        """
-        if self.rho is None or self._tracers is None:
-            raise RuntimeError("as_component_input called before gather_from_prognostic")
-        inp = {"dz": self.dz, "te": self.te, "p": self.p, "rho": self.rho}
-        inp.update({f"q{s}": getattr(self._tracers, f"q{s}") for s in SPECIES})
-        return inp
+        # 3. Store precip diagnostics.
+        self._last_outputs = outputs
 
     @property
     def precip_diagnostics(self) -> dict[str, fa.CellKField[ta.wpfloat]]:
         """muphys precip diagnostics keyed by name, ready for IO / plotting."""
-        if self._precip_diagnostics is None:
+        if self._last_outputs is None:
             raise RuntimeError("precip_diagnostics accessed before scatter_to_prognostic")
-        return self._precip_diagnostics
+        return {name: getattr(self._last_outputs, name) for name in PRECIP_DIAGNOSTICS}

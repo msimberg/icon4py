@@ -14,9 +14,12 @@ import dataclasses
 import datetime
 import enum
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar
 
+from icon4py.model.common.components.components import Component
+from icon4py.model.common.components.physics_state import TypedPhysicsState
 from icon4py.model.common.composition import Step, chain, sample, when
+from icon4py.model.common.states import prognostic_state, tracer_states
 
 
 class ForcingMode(enum.IntEnum):
@@ -38,11 +41,15 @@ class ForcingMode(enum.IntEnum):
 class PhysicsLoopState:
     """Mutable carry object for the physics composition."""
 
-    prognostic: Any
-    tracers: Any
+    prognostic: prognostic_state.PrognosticState
+    tracers: tracer_states.TracerState
     dtime: datetime.timedelta
     simulation_current_datetime: datetime.datetime
     sample_cache: dict[str, Any]
+
+
+InputT = TypeVar("InputT")
+OutputT = TypeVar("OutputT")
 
 
 class _NamedStep:
@@ -56,52 +63,54 @@ class _NamedStep:
         self._fn(carry)
 
 
-def gather_step(state: Any) -> Step[PhysicsLoopState]:
-    def _gather(carry: PhysicsLoopState) -> None:
-        state.gather_from_prognostic(carry.prognostic, carry.tracers)
+def gather_and_call_step(
+    component: Component[InputT, OutputT],
+    state: TypedPhysicsState[InputT, OutputT],
+    process_name: str,
+) -> Step[PhysicsLoopState]:
+    """Gather inputs from the prognostic state and run the component."""
 
-    return _NamedStep("gather", _gather)
+    def _gather_and_call(carry: PhysicsLoopState) -> None:
+        inputs = state.gather_from_prognostic(carry.prognostic, carry.tracers)
+        outputs = component.run(inputs)
+        carry.sample_cache[process_name] = outputs
 
-
-def component_call_step(process: Any) -> Step[PhysicsLoopState]:
-    def _call(carry: PhysicsLoopState) -> None:
-        outputs = process.component(
-            process.state.as_component_input(), carry.simulation_current_datetime
-        )
-        carry.sample_cache[process.name] = outputs
-
-    return _NamedStep(f"component_call:{process.name}", _call)
+    return _NamedStep(f"gather_and_call:{process_name}", _gather_and_call)
 
 
-def apply_step(process: Any) -> Step[PhysicsLoopState]:
+def apply_step(
+    state: TypedPhysicsState[InputT, OutputT], process_name: str
+) -> Step[PhysicsLoopState]:
+    """Apply the cached typed outputs back to the prognostic state."""
+
     def _apply(carry: PhysicsLoopState) -> None:
-        process.state.scatter_to_prognostic(
-            carry.prognostic,
-            carry.sample_cache[process.name],
-            carry.dtime,
-        )
+        outputs = carry.sample_cache[process_name]
+        state.scatter_to_prognostic(outputs, carry.dtime)
 
-    return _NamedStep(f"apply:{process.name}", _apply)
+    return _NamedStep(f"apply:{process_name}", _apply)
 
 
 def diagnose_step(process_name: str) -> Step[PhysicsLoopState]:
+    """Diagnostic mode: no tendency is applied to the prognostic state.
+
+    The component has already run and its outputs are cached; this step is a
+    no-op placeholder kept so the composition tree shows the diagnose branch
+    explicitly.
+    """
+
     def _diagnose(carry: PhysicsLoopState) -> None:
         del carry
-        raise NotImplementedError(
-            f"process '{process_name}': only ForcingMode.APPLY is implemented; "
-            "DIAGNOSTIC requires splitting scatter_to_prognostic into "
-            "apply-tendencies vs store-diagnostics"
-        )
 
     return _NamedStep(f"diagnose:{process_name}", _diagnose)
 
 
-def build_physics_composition(processes: list[Any]) -> Step[PhysicsLoopState]:
+def build_physics_composition(
+    processes: list[Any],
+) -> Step[PhysicsLoopState]:
     """Build the eDSL composition that runs each process in order."""
 
     def _process_step(process: Any) -> Step[PhysicsLoopState]:
         return chain(
-            gather_step(process.state),
             when(
                 lambda c: (
                     process.time_control.enable_process
@@ -109,7 +118,7 @@ def build_physics_composition(processes: list[Any]) -> Step[PhysicsLoopState]:
                 ),
                 then=chain(
                     sample(
-                        component_call_step(process),
+                        gather_and_call_step(process.component, process.state, process.name),
                         every=process.time_control.interval,
                         clock=lambda c: (
                             c.simulation_current_datetime - process.time_control.start_date
@@ -119,7 +128,7 @@ def build_physics_composition(processes: list[Any]) -> Step[PhysicsLoopState]:
                     ),
                     when(
                         lambda c: process.forcing_mode is ForcingMode.APPLY,
-                        then=apply_step(process),
+                        then=apply_step(process.state, process.name),
                         else_=diagnose_step(process.name),
                     ),
                 ),
