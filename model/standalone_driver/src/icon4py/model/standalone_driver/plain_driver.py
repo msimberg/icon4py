@@ -61,11 +61,11 @@ def run_time_integration_plain(carry: DriverLoopState) -> None:  # noqa: PLR0912
             if carry.states.tracer_advection_diagnostic is not None:
                 compute_airmass_new_step(carry)
 
-        if (
-            carry.granules.diffusion is not None
-            and carry.granules.diffusion.config.apply_to_horizontal_wind
-        ):
-            diffusion_step(carry)
+            if (
+                carry.granules.diffusion is not None
+                and carry.granules.diffusion.config.apply_to_horizontal_wind
+            ):
+                diffusion_step(carry)
 
             if carry.granules.tracer_advection is not None:
                 for tracer_current in carry.states.tracers.current.active_fields():
