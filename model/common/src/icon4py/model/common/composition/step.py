@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import enum
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 
 C_contra = TypeVar("C_contra", contravariant=True)
@@ -27,7 +27,7 @@ class Step(Protocol[C_contra]):
 
     name: str
 
-    def __call__(self, carry: C_contra) -> None: ...
+    def __call__(self, carry: C_contra, item: Any = None) -> None: ...
 
 
 class SwapPolicy(enum.Enum):

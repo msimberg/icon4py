@@ -175,11 +175,13 @@ def test_advection_run_single_step(  # noqa: PLR0917 [too-many-positional-argume
     log_serialized(diagnostic_state, prep_adv, p_tracer_now, dtime)
 
     advection_granule.run(
-        diagnostic_state=diagnostic_state,
-        prep_adv=prep_adv,
-        p_tracer_now=p_tracer_now,
-        p_tracer_new=p_tracer_new,
-        dtime=dtime,
+        tracer_advection.AdvectionInput(
+            diagnostic_state=diagnostic_state,
+            prep_adv=prep_adv,
+            p_tracer_now=p_tracer_now,
+            p_tracer_new=p_tracer_new,
+            dtime=dtime,
+        )
     )
 
     diagnostic_state_ref = construct_diagnostic_exit_state(

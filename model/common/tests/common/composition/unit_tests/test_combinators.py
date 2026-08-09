@@ -33,7 +33,7 @@ class _AppendStep:
         self.name = name or token
         self._token = token
 
-    def __call__(self, carry: _Carry) -> None:
+    def __call__(self, carry: _Carry, item: Any = None) -> None:
         carry.log.append(self._token)
 
 
@@ -148,21 +148,22 @@ def test_when_without_else_does_nothing_when_false() -> None:
     assert carry.log == []
 
 
-def test_foreach_iterates_source_and_sets_item() -> None:
+def test_foreach_iterates_source_and_passes_item() -> None:
     carry = _Carry()
 
     def _source(c: _Carry) -> list[int]:
         return [1, 2, 3]
 
-    def _set_item(c: _Carry, item: int) -> None:
+    def _body(c: _Carry, item: int) -> None:
         c.items.append(item)
 
-    foreach(_append("body"), source=_source, set_item=_set_item)(carry)
+    foreach(_append("body"), _body, source=_source)(carry)
+
     assert carry.items == [1, 2, 3]
     assert carry.log == ["body", "body", "body"]
 
 
-def test_foreach_without_set_item_runs_steps_per_item() -> None:
+def test_foreach_without_item_step_runs_steps_per_item() -> None:
     carry = _Carry()
     foreach(_append("x"), source=lambda c: ["a", "b"])(carry)
     assert carry.log == ["x", "x"]
@@ -172,7 +173,7 @@ class _ComputeStep(Step[_Carry]):
     def __init__(self) -> None:
         self.name: str = "compute"
 
-    def __call__(self, c: _Carry) -> None:
+    def __call__(self, c: _Carry, item: Any = None) -> None:
         c.cache["p"] = c.cache.get("p", 0) + 1
 
 
@@ -180,7 +181,7 @@ class _StaleStep(Step[_Carry]):
     def __init__(self) -> None:
         self.name: str = "compute"
 
-    def __call__(self, c: _Carry) -> None:
+    def __call__(self, c: _Carry, item: Any = None) -> None:
         c.cache["p"] = "STALE"
 
 
@@ -188,7 +189,7 @@ class _FreshStep(Step[_Carry]):
     def __init__(self) -> None:
         self.name: str = "compute"
 
-    def __call__(self, c: _Carry) -> None:
+    def __call__(self, c: _Carry, item: Any = None) -> None:
         c.cache["p"] = "FRESH"
 
 

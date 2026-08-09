@@ -10,9 +10,9 @@
 
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 from icon4py.model.standalone_driver.steps import (
+    _advect_tracer,
     adjust_ndyn_step,
     advance_clock_step,
-    advect_tracer_step,
     compute_airmass_new_step,
     compute_airmass_now_step,
     compute_mean_at_final_step,
@@ -69,8 +69,7 @@ def run_time_integration_plain(carry: DriverLoopState) -> None:  # noqa: PLR0912
 
             if carry.granules.tracer_advection is not None:
                 for tracer_current in carry.states.tracers.current.active_fields():
-                    carry.set_current_tracer(tracer_current)
-                    advect_tracer_step(carry)
+                    _advect_tracer(carry, tracer_current)
 
             if carry.granules.physics is not None:
                 physics_step(carry)

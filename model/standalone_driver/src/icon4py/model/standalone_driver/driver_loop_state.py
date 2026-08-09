@@ -14,14 +14,13 @@ import dataclasses
 import datetime
 import types
 from collections.abc import Callable
-from typing import Any
 
 import gt4py.next as gtx
 
 from icon4py.model.common import prescribed_tendencies
 from icon4py.model.common.decomposition import definitions as decomposition_defs
 from icon4py.model.common.io import io as common_io
-from icon4py.model.common.states import static_fields, tracer_states
+from icon4py.model.common.states import static_fields
 from icon4py.model.standalone_driver import (
     config as driver_config,
     driver_io,
@@ -68,8 +67,8 @@ class DriverLoopState:
     services: DriverServices
     wall_clock_starting_time: datetime.datetime
     time_step_index: int = 0
-    step_info: StepInfo | None = None
-    current_tracer: tracer_states.TracerField | None = None
+    substep_index: int = 0
+    substep_total: int = 0
 
     def begin_time_step(self, index: int, total: int) -> None:
         """Update the carry for the start of the outer time-step loop iteration."""
@@ -77,14 +76,6 @@ class DriverLoopState:
         self.time_step_index = index
 
     def begin_substep(self, index: int, total: int) -> None:
-        """Build the per-substep context used by the dycore substep steps."""
-        self.step_info = StepInfo(
-            substep_index=index,
-            at_first_substep=index == 0,
-            at_last_substep=index == total - 1,
-            at_initial_timestep=self.clock.is_first_step_in_simulation,
-        )
-
-    def set_current_tracer(self, tracer: Any) -> None:
-        """Store the tracer currently being advected by ``foreach``."""
-        self.current_tracer = tracer
+        """Store the current dycore substep index and total for leaf steps."""
+        self.substep_index = index
+        self.substep_total = total

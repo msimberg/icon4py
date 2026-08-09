@@ -301,7 +301,7 @@ def test_io_monitor_close_is_called_when_store_raises(
     class _RaisingStep:
         name = "raising_io_snapshot"
 
-        def __call__(self, carry: object) -> None:
+        def __call__(self, carry: object, item: object = None) -> None:
             raise RuntimeError("store failed")
 
     class _FakeIOMonitor:

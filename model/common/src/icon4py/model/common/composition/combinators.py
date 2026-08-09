@@ -29,7 +29,7 @@ class _Chain(Step[C]):
         self.name = _default_name("chain", name)
         self._steps = steps
 
-    def __call__(self, carry: C) -> None:
+    def __call__(self, carry: C, item: Any = None) -> None:
         for step in self._steps:
             step(carry)
 
@@ -61,7 +61,7 @@ class _Repeat(Step[C]):
         self._swap_target = swap_target
         self._set_loop_context = set_loop_context
 
-    def __call__(self, carry: C) -> None:
+    def __call__(self, carry: C, item: Any = None) -> None:
         total = self._times(carry) if callable(self._times) else self._times
         if self._pre is not None:
             self._pre(carry)
@@ -120,7 +120,7 @@ class _When(Step[C]):
         self._then = then
         self._else = else_
 
-    def __call__(self, carry: C) -> None:
+    def __call__(self, carry: C, item: Any = None) -> None:
         if self._predicate(carry):
             self._then(carry)
         elif self._else is not None:
@@ -141,36 +141,31 @@ def when[C](
 class _Foreach(Step[C]):
     def __init__(
         self,
-        *steps: Step[C],
+        *steps: Callable[[C, Any], None],
         source: Callable[[C], Iterable[Any]],
-        set_item: Callable[[C, Any], None] | None,
         name: str | None,
     ) -> None:
         self.name = _default_name("foreach", name)
         self._steps = steps
         self._source = source
-        self._set_item = set_item
 
-    def __call__(self, carry: C) -> None:
+    def __call__(self, carry: C, _item: Any = None) -> None:
         for item in self._source(carry):
-            if self._set_item is not None:
-                self._set_item(carry, item)
             for step in self._steps:
-                step(carry)
+                step(carry, item)
 
 
 def foreach[C](
-    *steps: Step[C],
+    *steps: Callable[[C, Any], None],
     source: Callable[[C], Iterable[Any]],
-    set_item: Callable[[C, Any], None] | None = None,
     name: str | None = None,
 ) -> Step[C]:
     """Iterate over ``source(carry)`` and run ``steps`` for each item.
 
-    If ``set_item`` is provided, it is called with the carry and the current
-    item before the steps run.
+    Each ``step`` is called as ``step(carry, item)``; the item is passed
+    explicitly so steps do not rely on mutable carry state.
     """
-    return _Foreach(*steps, source=source, set_item=set_item, name=name)
+    return _Foreach(*steps, source=source, name=name)
 
 
 class _Sample(Step[C]):
@@ -195,7 +190,7 @@ class _Sample(Step[C]):
         else:
             assert every > 0, "sample 'every' must be positive"
 
-    def __call__(self, carry: C) -> None:
+    def __call__(self, carry: C, item: Any = None) -> None:
         cache = self._cache(carry)
         clock_value = self._clock(carry)
         if isinstance(self._every, datetime.timedelta):

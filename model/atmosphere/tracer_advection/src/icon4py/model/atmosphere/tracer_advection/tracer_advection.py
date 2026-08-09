@@ -38,10 +38,12 @@ from icon4py.model.common import (
     model_backends,
     type_alias as ta,
 )
+from icon4py.model.common.components.components import Component
 from icon4py.model.common.config import config_io
 from icon4py.model.common.decomposition import definitions as decomposition
 from icon4py.model.common.grid import horizontal as h_grid, icon as icon_grid
 from icon4py.model.common.model_options import setup_program
+from icon4py.model.common.states import spec
 from icon4py.model.common.utils import data_allocation as data_alloc, fortran_config
 
 
@@ -133,7 +135,75 @@ class AdvectionConfig:
         )
 
 
-class Advection(ABC):
+@dataclasses.dataclass(frozen=True)
+class AdvectionInput:
+    """Input boundary of the tracer-advection component."""
+
+    diagnostic_state: tracer_advection_states.AdvectionDiagnosticState = spec.spec(
+        quantity="icon:tracer_advection_diagnostic",
+        units="",
+        dims=(),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    prep_adv: tracer_advection_states.AdvectionPrepAdvState = spec.spec(
+        quantity="icon:prep_tracer_advection",
+        units="",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    p_tracer_now: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:tracer_mass_fraction",
+        units="1",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    p_tracer_new: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:tracer_mass_fraction",
+        units="1",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    dtime: ta.wpfloat = spec.spec(
+        quantity="time_step",
+        units="s",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class AdvectionOutput:
+    """Output boundary of the tracer-advection component.
+
+    Both the updated tracer field and the mutated diagnostic container are
+    declared ``in_place`` because the component writes into buffers it was
+    handed.
+    """
+
+    diagnostic_state: tracer_advection_states.AdvectionDiagnosticState = spec.spec(
+        quantity="icon:tracer_advection_diagnostic",
+        units="",
+        dims=(),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        role=spec.Role.IN_PLACE,
+    )
+    p_tracer_new: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:tracer_mass_fraction",
+        units="1",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        role=spec.Role.IN_PLACE,
+    )
+
+
+class Advection(Component[AdvectionInput, AdvectionOutput], ABC):
     """
     Runs one three-dimensional tracer advection step.
 
@@ -143,28 +213,16 @@ class Advection(ABC):
         -maximum tracer advection height: tracer-specific control over which levels are used for tracer_advection
     """
 
+    @classmethod
+    def input_type(cls) -> type[AdvectionInput]:
+        return AdvectionInput
+
+    @classmethod
+    def output_type(cls) -> type[AdvectionOutput]:
+        return AdvectionOutput
+
     @abstractmethod
-    def run(
-        self,
-        *,
-        diagnostic_state: tracer_advection_states.AdvectionDiagnosticState,
-        prep_adv: tracer_advection_states.AdvectionPrepAdvState,
-        p_tracer_now: fa.CellKField[ta.wpfloat],
-        p_tracer_new: fa.CellKField[ta.wpfloat],
-        dtime: ta.wpfloat,
-    ) -> None:
-        """
-        Run an tracer advection step.
-
-        Args:
-            diagnostic_state: output argument, data class that contains diagnostic variables
-            prep_adv: input argument, data class that contains precalculated fields for tracer advection
-            p_tracer_now: input argument, field that contains current tracer mass fraction
-            p_tracer_new: output argument, field that contains new tracer mass fraction
-            dtime: input argument, the time step
-
-        """
-        ...
+    def run(self, state: AdvectionInput) -> AdvectionOutput: ...
 
 
 class NoAdvection(Advection):
@@ -203,30 +261,26 @@ class NoAdvection(Advection):
             offset_provider=self._grid.connectivities,
         )
 
-    def run(
-        self,
-        *,
-        diagnostic_state: tracer_advection_states.AdvectionDiagnosticState,
-        prep_adv: tracer_advection_states.AdvectionPrepAdvState,
-        p_tracer_now: fa.CellKField[ta.wpfloat],
-        p_tracer_new: fa.CellKField[ta.wpfloat],
-        dtime: ta.wpfloat,
-    ) -> None:
+    def run(self, state: AdvectionInput) -> AdvectionOutput:
         log.debug("tracer_advection run - start")
         log.debug("communication of prep_adv cell field: mass_flx_ic - start")
         self._exchange.exchange(
-            dims.CellDim, prep_adv.mass_flx_ic, stream=decomposition.DEFAULT_STREAM
+            dims.CellDim, state.prep_adv.mass_flx_ic, stream=decomposition.DEFAULT_STREAM
         )
         log.debug("communication of prep_adv cell field: mass_flx_ic - end")
 
         log.debug("running stencil copy_cell_kdim_field - start")
         self._copy_cell_kdim_field(
-            field_in=p_tracer_now,
-            field_out=p_tracer_new,
+            field_in=state.p_tracer_now,
+            field_out=state.p_tracer_new,
         )
         log.debug("running stencil copy_cell_kdim_field - end")
 
         log.debug("tracer_advection run - end")
+        return AdvectionOutput(
+            diagnostic_state=state.diagnostic_state,
+            p_tracer_new=state.p_tracer_new,
+        )
 
 
 class GodunovSplittingAdvection(Advection):
@@ -312,22 +366,18 @@ class GodunovSplittingAdvection(Advection):
         )
         self._end_cell_end = self._grid.end_index(cell_domain(h_grid.Zone.END))
 
-    def run(
-        self,
-        *,
-        diagnostic_state: tracer_advection_states.AdvectionDiagnosticState,
-        prep_adv: tracer_advection_states.AdvectionPrepAdvState,
-        p_tracer_now: fa.CellKField[ta.wpfloat],
-        p_tracer_new: fa.CellKField[ta.wpfloat],
-        dtime: ta.wpfloat,
-    ) -> None:
+    def run(self, state: AdvectionInput) -> AdvectionOutput:
         log.debug("tracer_advection run - start")
+
+        diagnostic_state = state.diagnostic_state
+        prep_adv = state.prep_adv
+        p_tracer_now = state.p_tracer_now
+        p_tracer_new = state.p_tracer_new
+        dtime = state.dtime
 
         log.debug("communication of prep_adv cell field: mass_flx_ic - start")
         self._exchange.exchange(
-            dims.CellDim,
-            prep_adv.mass_flx_ic,
-            stream=decomposition.DEFAULT_STREAM,
+            dims.CellDim, prep_adv.mass_flx_ic, stream=decomposition.DEFAULT_STREAM
         )
         log.debug("communication of prep_adv cell field: mass_flx_ic - end")
 
@@ -422,6 +472,10 @@ class GodunovSplittingAdvection(Advection):
         self._even_timestep = not self._even_timestep
 
         log.debug("tracer_advection run - end")
+        return AdvectionOutput(
+            diagnostic_state=diagnostic_state,
+            p_tracer_new=p_tracer_new,
+        )
 
 
 def convert_config_to_horizontal_vertical_advection(  # noqa: PLR0912 [too-many-branches]

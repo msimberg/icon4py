@@ -59,7 +59,7 @@ class _NamedStep:
         self.name = name
         self._fn = fn
 
-    def __call__(self, carry: PhysicsLoopState) -> None:
+    def __call__(self, carry: PhysicsLoopState, item: Any = None) -> None:
         self._fn(carry)
 
 

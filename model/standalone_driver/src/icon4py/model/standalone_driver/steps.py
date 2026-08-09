@@ -13,22 +13,35 @@ from __future__ import annotations
 import datetime
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from gt4py.next import config as gtx_config
 from gt4py.next.instrumentation import metrics as gtx_metrics
 
 from icon4py.model.atmosphere.dycore import dycore_states
+from icon4py.model.atmosphere.tracer_advection import tracer_advection
 from icon4py.model.common import type_alias as ta
 from icon4py.model.common.composition import Step, SwapPolicy, chain, foreach, repeat
 from icon4py.model.common.grid import geometry_attributes as geom_attr
 from icon4py.model.common.interpolation import interpolation_attributes as intp_attr
 from icon4py.model.common.metrics import metrics_attributes as metrics_attr
+from icon4py.model.common.states import tracer_states
 from icon4py.model.common.utils import data_allocation as data_alloc, device_utils
 from icon4py.model.standalone_driver import driver_constants, driver_io, driver_states, driver_utils
-from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
+from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState, StepInfo
 
 
 log = logging.getLogger(__name__)
+
+
+def _substep_info(carry: DriverLoopState) -> StepInfo:
+    """Build the per-substep context from the carry's loop index and clock."""
+    return StepInfo(
+        substep_index=carry.substep_index,
+        at_first_substep=carry.substep_index == 0,
+        at_last_substep=carry.substep_index == carry.substep_total - 1,
+        at_initial_timestep=carry.clock.is_first_step_in_simulation,
+    )
 
 
 class _NamedStep:
@@ -38,7 +51,7 @@ class _NamedStep:
         self.name = name
         self._fn = fn
 
-    def __call__(self, carry: DriverLoopState) -> None:
+    def __call__(self, carry: DriverLoopState, item: Any = None) -> None:
         self._fn(carry)
 
 
@@ -164,8 +177,8 @@ compute_airmass_new_step = _as_step("compute_airmass_new_step", _compute_airmass
 
 
 def _compute_statistics(carry: DriverLoopState) -> None:
-    assert carry.step_info is not None
-    current_dyn_substep = carry.step_info.substep_index
+    step_info = _substep_info(carry)
+    current_dyn_substep = step_info.substep_index
     prognostic_state = carry.states.prognostics.current
     if carry.config.driver.enable_statistics_logging:
         rho_arg_max, max_rho = driver_utils.find_maximum_from_field(prognostic_state.rho)
@@ -193,9 +206,8 @@ compute_statistics_step = _as_step("compute_statistics_step", _compute_statistic
 
 
 def _update_time_levels(carry: DriverLoopState) -> None:
-    assert carry.step_info is not None
+    step_info = _substep_info(carry)
     assert carry.states.solve_nonhydro_diagnostic is not None
-    step_info = carry.step_info
     diagnostic_state_nh = carry.states.solve_nonhydro_diagnostic
     if not (step_info.at_initial_timestep and step_info.at_first_substep):
         diagnostic_state_nh.vertical_wind_advective_tendency.swap()
@@ -231,7 +243,7 @@ def _second_order_divdamp_factor(carry: DriverLoopState) -> ta.wpfloat:
 
 
 def _solve_nh(carry: DriverLoopState) -> None:
-    assert carry.step_info is not None
+    step_info = _substep_info(carry)
     assert carry.states.solve_nonhydro_diagnostic is not None
     assert carry.states.prep_advection_prognostic is not None
     assert carry.granules.solve_nonhydro is not None
@@ -250,10 +262,10 @@ def _solve_nh(carry: DriverLoopState) -> None:
             second_order_divdamp_factor=_second_order_divdamp_factor(carry),
             dtime=carry.clock.substep_timestep,
             ndyn_substeps_var=carry.clock.ndyn_substeps_var,
-            at_initial_timestep=carry.step_info.at_initial_timestep,
+            at_initial_timestep=step_info.at_initial_timestep,
             lprep_adv=carry.config.driver.do_prep_adv,
-            at_first_substep=carry.step_info.at_first_substep,
-            at_last_substep=carry.step_info.at_last_substep,
+            at_first_substep=step_info.at_first_substep,
+            at_last_substep=step_info.at_last_substep,
         )
 
 
@@ -329,34 +341,30 @@ diffusion_step = _as_step("diffusion_step", _diffusion)
 # --------------------------------------------------------------------------------------
 
 
-def _advect_tracer(carry: DriverLoopState) -> None:
-    assert carry.current_tracer is not None
+def _advect_tracer(carry: DriverLoopState, tracer: tracer_states.TracerField) -> None:
     assert carry.granules.tracer_advection is not None
     assert carry.states.tracer_advection_diagnostic is not None
     assert carry.states.prep_tracer_advection_prognostic is not None
-    current_tracer = carry.current_tracer
-    tracer_next_field = getattr(carry.states.tracers.next, current_tracer.name)
+    tracer_next_field = getattr(carry.states.tracers.next, tracer.name)
     assert tracer_next_field is not None, (
-        f"tracer '{current_tracer.name}' active in current state but missing in next state"
+        f"tracer '{tracer.name}' active in current state but missing in next state"
     )
     carry.granules.tracer_advection.run(
-        diagnostic_state=carry.states.tracer_advection_diagnostic,
-        prep_adv=carry.states.prep_tracer_advection_prognostic,
-        p_tracer_now=current_tracer.field,
-        p_tracer_new=tracer_next_field,
-        dtime=carry.clock.dtime_in_seconds,
+        tracer_advection.AdvectionInput(
+            diagnostic_state=carry.states.tracer_advection_diagnostic,
+            prep_adv=carry.states.prep_tracer_advection_prognostic,
+            p_tracer_now=tracer.field,
+            p_tracer_new=tracer_next_field,
+            dtime=carry.clock.dtime_in_seconds,
+        )
     )
-
-
-advect_tracer_step = _as_step("advect_tracer_step", _advect_tracer)
 
 
 def advect_tracers_step() -> Step[DriverLoopState]:
     """Advect every active tracer once per time step."""
     return foreach(
-        advect_tracer_step,
+        _advect_tracer,
         source=lambda c: c.states.tracers.current.active_fields(),
-        set_item=DriverLoopState.set_current_tracer,
         name="advect_tracers",
     )
 
