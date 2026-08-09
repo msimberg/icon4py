@@ -48,8 +48,7 @@ def run_time_integration_edsl(carry: DriverLoopState) -> None:
         when(
             lambda c: (
                 c.granules.diffusion is not None
-                and c.config.diffusion is not None
-                and c.config.diffusion.apply_to_horizontal_wind
+                and c.granules.diffusion.config.apply_to_horizontal_wind
             ),
             then=diffusion_step,
         ),
