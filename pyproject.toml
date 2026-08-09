@@ -170,6 +170,8 @@ files = [
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/grid',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/composition',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/metrics',
+  '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/spec.py',
+  '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/quantities.py',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/states',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/math',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/interpolation',

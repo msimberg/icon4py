@@ -1,0 +1,141 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.0.3, pluggy-1.6.0 -- /home/mjs/src/.worktrees/icon4py/components-one-more-try/.venv/bin/python
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/mjs/src/.worktrees/icon4py/components-one-more-try
+configfile: pyproject.toml
+plugins: mpi-0.6, factoryboy-2.8.1, xdist-3.8.0, benchmark-5.2.3, unused-fixtures-0.3.1, anyio-4.13.0, devtools-0.12.2, Faker-40.18.0, zarr-3.2.1
+collecting ... collected 71 items / 63 deselected / 8 selected
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0] verifying field vn
+verifying field w
+verifying field exner
+verifying field theta_v
+verifying field rho
+verifying field u
+verifying field v
+PASSED
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description1] verifying field vn
+verifying field w
+verifying field exner
+verifying field theta_v
+verifying field rho
+verifying field u
+verifying field v
+PASSED
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description2] XFAIL
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3] verifying field vn
+verifying field w
+verifying field exner
+verifying field theta_v
+verifying field rho
+verifying field u
+verifying field v
+verifying field qv
+PASSED
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True] 
+verifying field vn
+
+verifying field w
+
+verifying field exner
+
+verifying field theta_v
+
+verifying field rho
+PASSED
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-gauss3d-True] 
+verifying field vn
+
+verifying field w
+
+verifying field exner
+
+verifying field theta_v
+
+verifying field rho
+PASSED
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-mch-ch-r04b09-True] XFAIL
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[validation-jw-True] SKIPPED
+
+=============================== warnings summary ===============================
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description1]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-gauss3d-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/.venv/lib/python3.12/site-packages/gt4py/next/otf/compiled_program.py:644: UserWarning: Python is not running in optimized mode, which may impact performance. Consider running with `python -O` or setting the environment variable `PYTHONOPTIMIZE=1`.
+    compile_variant_hook(
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/model/common/src/icon4py/model/common/interpolation/rbf_interpolation.py:234: RuntimeWarning: invalid value encountered in divide
+    array_ns.divide(arc_lengths, v2_norm[:, array_ns.newaxis, :], out=arc_lengths)
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/model/common/src/icon4py/model/common/interpolation/rbf_interpolation.py:186: RuntimeWarning: invalid value encountered in divide
+    array_ns.divide(arc_lengths, norms[:, :, array_ns.newaxis], out=arc_lengths)
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/model/common/src/icon4py/model/common/interpolation/rbf_interpolation.py:187: RuntimeWarning: invalid value encountered in divide
+    array_ns.divide(arc_lengths, norms[:, array_ns.newaxis, :], out=arc_lengths)
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description1]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-gauss3d-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/model/common/src/icon4py/model/common/decomposition/decomposer.py:76: DeprecationWarning: Passing xadj/adjncy is deprecated and will be removed in 2027. Pass a CSRAdjacency object instead.
+    _, partition_index = pymetis.part_graph(
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/model/common/src/icon4py/model/common/interpolation/interpolation_fields.py:358: RuntimeWarning: divide by zero encountered in divide
+    1.0
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/model/common/src/icon4py/model/common/interpolation/interpolation_fields.py:365: RuntimeWarning: divide by zero encountered in divide
+    1.0
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/model/common/src/icon4py/model/common/interpolation/interpolation_fields.py:376: RuntimeWarning: invalid value encountered in subtract
+    wgt[0] = 1.0 - wgt[1] - wgt[2] if wgt_loc == 0.0 else 1.0 - wgt_loc - wgt[1] - wgt[2]
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description1]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-gauss3d-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/model/common/src/icon4py/model/common/interpolation/interpolation_fields.py:1239: RuntimeWarning: divide by zero encountered in divide
+    lsq_weights_c = 1.0 / (z_norm**lsq_wgt_exp)
+
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description0]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description1]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_initial_conditions.py::test_initial_conditions_compare_single_multi_rank[True-experiment_description3]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-jw-True]
+model/standalone_driver/tests/standalone_driver/mpi_tests/test_parallel_standalone_driver.py::test_standalone_driver_compare_single_multi_rank[integration-gauss3d-True]
+  /home/mjs/src/.worktrees/icon4py/components-one-more-try/model/common/src/icon4py/model/common/interpolation/interpolation_fields.py:1240: RuntimeWarning: invalid value encountered in divide
+    lsq_weights_c = lsq_weights_c / array_ns.max(lsq_weights_c, axis=1)[:, array_ns.newaxis]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=============================== MPI Information ================================
+rank: 0
+size: 4
+MPI version: 3.1
+MPI library version: Open MPI v5.0.10, package: Open MPI nixbld@localhost Distribution, ident: 5.0.10, repo rev: v5.0.10, Feb 23, 2026 
+MPI vendor: Open MPI 5.0.10
+mpi4py rc: 
+ initialize: False
+ finalize: True
+mpi4py config:
+= 5 passed, 1 skipped, 63 deselected, 2 xfailed, 38 warnings in 1322.38s (0:22:02) =
