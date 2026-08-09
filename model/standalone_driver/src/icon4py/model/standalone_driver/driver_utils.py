@@ -475,7 +475,7 @@ def initialize_granules(
                 enable_process=True,
             ),
         )
-        physics_granule = physics_driver.PhysicsDriver([muphys_process])
+        physics_granule = physics_driver.PhysicsDriver([muphys_process], config.driver.dtime)
 
     return Granules(
         solve_nonhydro=solve_nonhydro_granule,

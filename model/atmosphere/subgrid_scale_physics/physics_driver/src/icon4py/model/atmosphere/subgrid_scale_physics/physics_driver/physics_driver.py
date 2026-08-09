@@ -12,38 +12,23 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-import enum
 from typing import TYPE_CHECKING, Any
 
+from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.composition import (
+    ForcingMode,
+    PhysicsLoopState,
+    build_physics_composition,
+)
 from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.process_time_control import (
     ProcessTimeControl,
 )
 from icon4py.model.common.components.components import Component
 from icon4py.model.common.components.physics_state import PhysicsState
+from icon4py.model.common.composition import Step
 
 
 if TYPE_CHECKING:
     from icon4py.model.common.states import prognostic_state, tracer_states
-
-
-class ForcingMode(enum.IntEnum):
-    """Per-process apply switch -- the icon4py analogue of AES ``fc_xxx``.
-
-    Decides whether a process's computed forcing is fed back into the prognostic
-    state when the process runs:
-
-    - APPLY:      compute and apply it (``field += tend*dt``); the process affects the run.
-    - DIAGNOSTIC: compute it but do NOT apply it -- the outputs stay available for
-      inspection/output while the prognostic state is left unchanged ("look, don't touch").
-
-    This composes with ``kind`` tag (``states/model.py``): ForcingMode is
-    per-PROCESS, and ``kind`` is whether the field is a tendency or a diagnostic.
-    A process is applied only if APPLY mode, and within it only ``kind="tendency"`` fields
-    are added to the state.
-    """
-
-    DIAGNOSTIC = 0
-    APPLY = 1
 
 
 @dataclasses.dataclass
@@ -73,9 +58,23 @@ class PhysicsDriver:
     def __init__(
         self,
         processes: list[PhysicsProcess],
+        dtime: datetime.timedelta,
     ) -> None:
         self._processes = processes
-        self._recycle_cache: dict[str, dict[str, Any]] = {}
+        self._dtime = dtime
+        self.sample_cache: dict[str, Any] = {}
+        self._composition: Step[PhysicsLoopState] | None = None
+        self._validate_intervals()
+
+    def _validate_intervals(self) -> None:
+        for process in self._processes:
+            if process.time_control.enable_process:
+                process.time_control.validate_interval(self._dtime)
+
+    def _get_composition(self) -> Step[PhysicsLoopState]:
+        if self._composition is None:
+            self._composition = build_physics_composition(self._processes)
+        return self._composition
 
     def run(
         self,
@@ -84,34 +83,11 @@ class PhysicsDriver:
         dtime: datetime.timedelta,
         simulation_current_datetime: datetime.datetime,
     ) -> None:
-        for process in self._processes:
-            tc = process.time_control
-            tc.validate_interval(dtime)
-            state = process.state
-            state.gather_from_prognostic(prognostic, tracers)
-            if not tc.enable_process:
-                continue
-            if not tc.is_in_window(simulation_current_datetime):
-                # outside the process window: no forcing
-                continue
-            # Compute on a firing (active) step, and also on the first in-window step -- when
-            # there is nothing cached to recycle yet. Otherwise reuse the last computed forcing.
-            if tc.is_active(simulation_current_datetime) or process.name not in self._recycle_cache:
-                # compute
-                outputs = process.component(state.as_component_input(), simulation_current_datetime)
-                self._recycle_cache[process.name] = outputs
-            else:
-                # recycle
-                outputs = self._recycle_cache[process.name]
-            # TODO (Yilu): ForcingMode.DIAGNOSTIC (compute without applying) is not
-            # implemented yet. It falls out of the planned AES-style restructure
-            # (accumulate tendencies per process, apply once after all processes --): DIAGNOSTIC then
-            # simply skips the accumulation. Fail loud rather than silently apply.
-            if process.forcing_mode is not ForcingMode.APPLY:
-                raise NotImplementedError(
-                    f"process '{process.name}': only ForcingMode.APPLY is implemented; "
-                    "DIAGNOSTIC requires splitting scatter_to_prognostic into "
-                    "apply-tendencies vs store-diagnostics"
-                )
-
-            state.scatter_to_prognostic(prognostic, outputs, dtime)
+        carry = PhysicsLoopState(
+            prognostic=prognostic,
+            tracers=tracers,
+            dtime=dtime,
+            simulation_current_datetime=simulation_current_datetime,
+            sample_cache=self.sample_cache,
+        )
+        self._get_composition()(carry)
