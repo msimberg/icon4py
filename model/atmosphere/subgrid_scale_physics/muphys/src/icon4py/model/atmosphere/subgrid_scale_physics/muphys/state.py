@@ -197,7 +197,7 @@ class State(PhysicsState):
             pressure_ifc=self.pressure_on_cells_half_levels,
         )
 
-    def scatter_to_prognostic(
+    def scatter_to_prognostic(  # type: ignore[override]
         self,
         prognostic: prognostics.PrognosticState,
         outputs: dict[str, fa.CellKField[ta.wpfloat]],

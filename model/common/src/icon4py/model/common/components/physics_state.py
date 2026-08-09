@@ -6,36 +6,42 @@
 # Please, refer to the LICENSE file in the root directory.
 # SPDX-License-Identifier: BSD-3-Clause
 
+"""Typed physics-state boundary protocol."""
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+import datetime
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 
 if TYPE_CHECKING:
-    import datetime
-
     from icon4py.model.common.states import prognostic_state, tracer_states
 
+InputT_co = TypeVar("InputT_co", covariant=True)
+OutputT_contra = TypeVar("OutputT_contra", contravariant=True)
 
-class PhysicsState(Protocol):
-    """
-    Protocol for the physics-state adapter that the ``PhysicsDriver`` depends on.
 
-    The concrete implementations live with their process (e.g.
-    ``icon4py.model.atmosphere.subgrid_scale_physics.muphys.state.State``); this
-    module only declares the interface the ``PhysicsDriver`` relies on, so it
-    stays decoupled from any specific physics state.
+class TypedPhysicsState(Protocol[InputT_co, OutputT_contra]):
+    """Typed boundary between the physics driver and a physics component.
+
+    The adapter declares exactly the prognostic and tracer fields it reads
+    (``gather_from_prognostic``) and how the component's outputs are applied
+    back to the prognostic state (``scatter_to_prognostic``) by inspecting the
+    ``role`` declared on each output field.
     """
 
     def gather_from_prognostic(
         self,
         prognostic: prognostic_state.PrognosticState,
         tracers: tracer_states.TracerState,
-    ) -> None: ...
-    def as_component_input(self) -> dict[str, Any]: ...
+    ) -> InputT_co: ...
+
     def scatter_to_prognostic(
         self,
-        prognostic: prognostic_state.PrognosticState,
-        outputs: dict[str, Any],
+        outputs: OutputT_contra,
         dtime: datetime.timedelta,
     ) -> None: ...
+
+
+# Backward-compatible alias removed once all callers migrate to TypedPhysicsState.
+PhysicsState = TypedPhysicsState

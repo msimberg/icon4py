@@ -16,7 +16,9 @@ from icon4py.model.atmosphere.subgrid_scale_physics.microphysics.stencils import
     saturation_adjustment_stencils as satad_stencils,
 )
 from icon4py.model.common import field_type_aliases as fa, model_options, type_alias as ta
+from icon4py.model.common.components.components import Component
 from icon4py.model.common.grid import horizontal as h_grid
+from icon4py.model.common.states import quantities as q, spec
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -93,7 +95,103 @@ _SATURATION_ADJUST_OUTPUT_ATTRIBUTES: Final[dict[str, model.FieldMetaData]] = di
 )
 
 
-class SaturationAdjustment:
+@dataclasses.dataclass(frozen=True)
+class SaturationAdjustmentInput:
+    """Input boundary of the saturation-adjustment component."""
+
+    dtime: ta.wpfloat = spec.spec(
+        quantity="time_step",
+        units="s",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+    rho: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.AIR_DENSITY.name,
+        units=q.AIR_DENSITY.units,
+        dims=q.AIR_DENSITY.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    temperature: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:air_temperature",
+        units="K",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    qv: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.SPECIFIC_HUMIDITY.name,
+        units=q.SPECIFIC_HUMIDITY.units,
+        dims=q.SPECIFIC_HUMIDITY.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    qc: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.SPECIFIC_CLOUD_CONTENT.name,
+        units=q.SPECIFIC_CLOUD_CONTENT.units,
+        dims=q.SPECIFIC_CLOUD_CONTENT.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    temperature_tendency: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:tend_temperature_due_to_saturation_adjustment",
+        units="K s-1",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+    qv_tendency: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:tend_specific_humidity_due_to_saturation_adjustment",
+        units="s-1",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+    qc_tendency: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:tend_specific_cloud_content_due_to_saturation_adjustment",
+        units="s-1",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class SaturationAdjustmentOutput:
+    """Output boundary of the saturation-adjustment component.
+
+    The three tendencies are written in place into the input buffers and
+    declared with ``role="tendency"``.
+    """
+
+    temperature_tendency: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:tend_temperature_due_to_saturation_adjustment",
+        units="K s-1",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.SCRATCH,
+        role=spec.Role.TENDENCY,
+    )
+    qv_tendency: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:tend_specific_humidity_due_to_saturation_adjustment",
+        units="s-1",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.SCRATCH,
+        role=spec.Role.TENDENCY,
+    )
+    qc_tendency: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity="icon:tend_specific_cloud_content_due_to_saturation_adjustment",
+        units="s-1",
+        dims=(dims.CellDim, dims.KDim),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.SCRATCH,
+        role=spec.Role.TENDENCY,
+    )
+
+
+class SaturationAdjustment(Component[SaturationAdjustmentInput, SaturationAdjustmentOutput]):
     def __init__(
         self,
         *,
@@ -114,12 +212,13 @@ class SaturationAdjustment:
         self._determine_horizontal_domains()
         self._initialize_gt4py_programs()
 
-    # TODO(OngChia): add in input and output data properties, and refactor this component to follow the physics component protocol.
-    def input_properties(self) -> dict[str, model.FieldMetaData]:
-        raise NotImplementedError
+    @classmethod
+    def input_type(cls) -> type[SaturationAdjustmentInput]:
+        return SaturationAdjustmentInput
 
-    def output_properties(self) -> dict[str, model.FieldMetaData]:
-        raise NotImplementedError
+    @classmethod
+    def output_type(cls) -> type[SaturationAdjustmentOutput]:
+        return SaturationAdjustmentOutput
 
     def _allocate_local_variables(self):
         #: it was originally named as tworkold in ICON. Old temperature before iteration.
@@ -214,20 +313,10 @@ class SaturationAdjustment:
             ]
         )
 
-    def run(
-        self,
-        *,
-        dtime: ta.wpfloat,
-        rho: fa.CellKField[ta.wpfloat],
-        temperature: fa.CellKField[ta.wpfloat],
-        qv: fa.CellKField[ta.wpfloat],
-        qc: fa.CellKField[ta.wpfloat],
-        temperature_tendency: fa.CellKField[ta.wpfloat],
-        qv_tendency: fa.CellKField[ta.wpfloat],
-        qc_tendency: fa.CellKField[ta.wpfloat],
-    ):
+    def run(self, state: SaturationAdjustmentInput) -> SaturationAdjustmentOutput:
         """
         Adjust saturation at each grid point.
+
         Saturation adjustment condenses/evaporates specific humidity (qv) into/from
         cloud water content (qc) such that a gridpoint is just saturated. Temperature (t)
         is adapted accordingly and pressure adapts itself in ICON.
@@ -238,25 +327,15 @@ class SaturationAdjustment:
         is taken, which is a common approximation and introduces only a small error.
 
         Originally inspired from satad_v_3D of ICON.
-
-        Args:
-            dtime: time step [s]
-            rho: air density [kg m-3]
-            temperature: air temperature [K]
-            qv: specific humidity [kg kg-1]
-            qc: specific cloud water content [kg kg-1]
-            temperature_tendency: air temperature tendency [K s-1]
-            qv_tendency: specific humidity tendency [s-1]
-            qc_tendency: specific cloud water content tendency [s-1]
         """
 
         temperature_pair = common_utils.TimeStepPair(self._temperature1, self._temperature2)
 
         self._compute_subsaturated_case_and_initialize_newton_iterations(
-            temperature=temperature,
-            qv=qv,
-            qc=qc,
-            rho=rho,
+            temperature=state.temperature,
+            qv=state.qv,
+            qc=state.qc,
+            rho=state.rho,
             subsaturated_mask=self._subsaturated_mask,
             lwdocvd=self._lwdocvd,
             current_temperature=temperature_pair.current,
@@ -273,9 +352,9 @@ class SaturationAdjustment:
                 )
 
             self._update_temperature_by_newton_iteration(
-                temperature=temperature,
-                qv=qv,
-                rho=rho,
+                temperature=state.temperature,
+                qv=state.qv,
+                rho=state.rho,
                 newton_iteration_mask=self._newton_iteration_mask,
                 lwdocvd=self._lwdocvd,
                 next_temperature=temperature_pair.next,
@@ -292,14 +371,20 @@ class SaturationAdjustment:
             num_iter = num_iter + 1
 
         self._update_temperature_qv_qc_tendencies(
-            dtime=dtime,
-            temperature=temperature,
+            dtime=state.dtime,
+            temperature=state.temperature,
             current_temperature=temperature_pair.current,
-            qv=qv,
-            qc=qc,
-            rho=rho,
+            qv=state.qv,
+            qc=state.qc,
+            rho=state.rho,
             subsaturated_mask=self._subsaturated_mask,
-            temperature_tendency=temperature_tendency,
-            qv_tendency=qv_tendency,
-            qc_tendency=qc_tendency,
+            temperature_tendency=state.temperature_tendency,
+            qv_tendency=state.qv_tendency,
+            qc_tendency=state.qc_tendency,
+        )
+
+        return SaturationAdjustmentOutput(
+            temperature_tendency=state.temperature_tendency,
+            qv_tendency=state.qv_tendency,
+            qc_tendency=state.qc_tendency,
         )

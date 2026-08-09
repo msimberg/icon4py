@@ -88,16 +88,17 @@ def test_saturation_adjustement(
 
     # run saturation adjustment
     saturation_adjustment.run(
-        dtime=dtime,
-        rho=rho,
-        temperature=temperature,
-        qv=qv,
-        qc=qc,
-        temperature_tendency=temperature_tendency,
-        qv_tendency=qv_tendency,
-        qc_tendency=qc_tendency,
+        satad.SaturationAdjustmentInput(
+            dtime=dtime,
+            rho=rho,
+            temperature=temperature,
+            qv=qv,
+            qc=qc,
+            temperature_tendency=temperature_tendency,
+            qv_tendency=qv_tendency,
+            qc_tendency=qc_tendency,
+        )
     )
-
     updated_qv = qv.asnumpy() + qv_tendency.asnumpy() * dtime
     updated_qc = qc.asnumpy() + qc_tendency.asnumpy() * dtime
     updated_temperature = temperature.asnumpy() + temperature_tendency.asnumpy() * dtime
