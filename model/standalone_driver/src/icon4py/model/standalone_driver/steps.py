@@ -18,6 +18,7 @@ from typing import Any
 from gt4py.next import config as gtx_config
 from gt4py.next.instrumentation import metrics as gtx_metrics
 
+from icon4py.model.atmosphere.diffusion import diffusion
 from icon4py.model.atmosphere.dycore import dycore_states
 from icon4py.model.atmosphere.tracer_advection import tracer_advection
 from icon4py.model.common import type_alias as ta
@@ -98,10 +99,12 @@ def _diffuse_before_time_loop(carry: DriverLoopState) -> None:
     assert carry.granules.diffusion is not None
     log.info("running diffusion to filter the initial state, before the time loop")
     carry.granules.diffusion.run(
-        carry.states.diffusion_diagnostic,
-        carry.states.prognostics.current,
-        carry.clock.dtime_in_seconds,
-        initial_run=True,
+        diffusion.DiffusionInput(
+            diagnostic_state=carry.states.diffusion_diagnostic,
+            prognostic_state=carry.states.prognostics.current,
+            dtime=carry.clock.dtime_in_seconds,
+            initial_run=True,
+        )
     )
 
 
@@ -327,9 +330,12 @@ def _diffusion(carry: DriverLoopState) -> None:
     timer_diffusion = carry.services.timer_collection.timers[timer_name]
     with timer_diffusion:
         carry.granules.diffusion.run(
-            carry.states.diffusion_diagnostic,
-            carry.states.prognostics.next,
-            carry.clock.dtime_in_seconds,
+            diffusion.DiffusionInput(
+                diagnostic_state=carry.states.diffusion_diagnostic,
+                prognostic_state=carry.states.prognostics.next,
+                dtime=carry.clock.dtime_in_seconds,
+                initial_run=False,
+            )
         )
 
 

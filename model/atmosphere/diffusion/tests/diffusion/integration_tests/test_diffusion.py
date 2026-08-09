@@ -370,7 +370,12 @@ def test_run_diffusion_single_step(  # noqa: PLR0917 [too-many-positional-argume
     assert savepoint_diffusion_init.fac_bdydiff_v() == diffusion_granule.fac_bdydiff_v
 
     diffusion_granule.run(
-        diagnostic_state=diagnostic_state, prognostic_state=prognostic_state, dtime=dtime
+        diffusion.DiffusionInput(
+            diagnostic_state=diagnostic_state,
+            prognostic_state=prognostic_state,
+            dtime=dtime,
+            initial_run=False,
+        )
     )
     verify_diffusion_fields(config, diagnostic_state, prognostic_state, savepoint_diffusion_exit)
 
@@ -426,10 +431,12 @@ def test_run_diffusion_initial_step(  # noqa: PLR0917 [too-many-positional-argum
     assert savepoint_diffusion_init.fac_bdydiff_v() == diffusion_granule.fac_bdydiff_v
 
     diffusion_granule.run(
-        diagnostic_state=diagnostic_state,
-        prognostic_state=prognostic_state,
-        dtime=dtime,
-        initial_run=True,
+        diffusion.DiffusionInput(
+            diagnostic_state=diagnostic_state,
+            prognostic_state=prognostic_state,
+            dtime=dtime,
+            initial_run=True,
+        )
     )
 
     verify_diffusion_fields(

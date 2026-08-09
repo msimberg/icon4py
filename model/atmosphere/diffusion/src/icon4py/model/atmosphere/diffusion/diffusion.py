@@ -46,6 +46,7 @@ from icon4py.model.atmosphere.diffusion.stencils.calculate_nabla2_and_smag_coeff
     calculate_nabla2_and_smag_coefficients_for_vn,
 )
 from icon4py.model.common import constants, dimension as dims, model_backends
+from icon4py.model.common.components.components import Component
 from icon4py.model.common.config import config_io, options as common_conf_opt
 from icon4py.model.common.decomposition import definitions as decomposition
 from icon4py.model.common.grid import horizontal as h_grid, icon as icon_grid, vertical as v_grid
@@ -53,6 +54,7 @@ from icon4py.model.common.interpolation.stencils.mo_intp_rbf_rbf_vec_interpol_ve
     mo_intp_rbf_rbf_vec_interpol_vertex,
 )
 from icon4py.model.common.model_options import setup_program
+from icon4py.model.common.states import spec
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -492,8 +494,76 @@ class DiffusionParams:
         )
 
 
-class Diffusion:
+@dataclasses.dataclass(frozen=True)
+class DiffusionInput:
+    """Input boundary of the diffusion component."""
+
+    diagnostic_state: diffusion_states.DiffusionDiagnosticState = spec.spec(
+        quantity="icon:diffusion_diagnostic",
+        units="",
+        dims=(),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    prognostic_state: prognostics.PrognosticState = spec.spec(
+        quantity="prognostic_state",
+        units="",
+        dims=(),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    dtime: float = spec.spec(
+        quantity="time_step",
+        units="s",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+    initial_run: bool = spec.spec(
+        quantity="icon:initial_run",
+        units="",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class DiffusionOutput:
+    """Output boundary of the diffusion component.
+
+    The component mutates its input diagnostic and prognostic buffers in place;
+    the output dataclass records those buffers for routing and introspection.
+    """
+
+    diagnostic_state: diffusion_states.DiffusionDiagnosticState = spec.spec(
+        quantity="icon:diffusion_diagnostic",
+        units="",
+        dims=(),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        role=spec.Role.IN_PLACE,
+    )
+    prognostic_state: prognostics.PrognosticState = spec.spec(
+        quantity="prognostic_state",
+        units="",
+        dims=(),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        role=spec.Role.IN_PLACE,
+    )
+
+
+class Diffusion(Component[DiffusionInput, DiffusionOutput]):
     """Class that configures diffusion and does one diffusion step."""
+
+    @classmethod
+    def input_type(cls) -> type[DiffusionInput]:
+        return DiffusionInput
+
+    @classmethod
+    def output_type(cls) -> type[DiffusionOutput]:
+        return DiffusionOutput
 
     def __init__(
         self,
@@ -807,13 +877,7 @@ class Diffusion:
 
         self._horizontal_start_index_w_diffusion = _get_start_index_for_w_diffusion()
 
-    def run(
-        self,
-        diagnostic_state: diffusion_states.DiffusionDiagnosticState,
-        prognostic_state: prognostics.PrognosticState,
-        dtime: float,
-        initial_run: bool = False,
-    ) -> None:
+    def run(self, state: DiffusionInput) -> DiffusionOutput:  # noqa: PLR0915 [too-many-statements]
         """
         Do one diffusion step.
 
@@ -824,6 +888,11 @@ class Diffusion:
 
         The initial run uses special values for diff_multfac_vn, smag_limit and smag_offset.
         """
+        diagnostic_state = state.diagnostic_state
+        prognostic_state = state.prognostic_state
+        dtime = state.dtime
+        initial_run = state.initial_run
+
         if initial_run:
             diff_multfac_vn = data_alloc.zero_field(
                 self._grid, dims.KDim, allocator=self._allocator
@@ -1014,3 +1083,8 @@ class Diffusion:
                 stream=decomposition.DEFAULT_STREAM,
             )
             log.debug("communication of prognostic cell field: w - done")
+
+        return DiffusionOutput(
+            diagnostic_state=diagnostic_state,
+            prognostic_state=prognostic_state,
+        )
