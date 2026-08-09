@@ -1,0 +1,216 @@
+# ICON4Py - ICON inspired code in Python and GT4Py
+#
+# Copyright (c) 2022-2024, ETH Zurich and MeteoSwiss
+# All rights reserved.
+#
+# Please, refer to the LICENSE file in the root directory.
+# SPDX-License-Identifier: BSD-3-Clause
+
+"""Generic combinators that build new ``Step`` instances from simpler ones."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from typing import Any, TypeVar
+
+from icon4py.model.common.composition.step import Step, SwapPolicy
+
+
+C = TypeVar("C")
+
+
+def _default_name(stem: str, name: str | None) -> str:
+    return stem if name is None else name
+
+
+class _Chain(Step[C]):
+    def __init__(self, *steps: Step[C], name: str | None = None) -> None:
+        self.name = _default_name("chain", name)
+        self._steps = steps
+
+    def __call__(self, carry: C) -> None:
+        for step in self._steps:
+            step(carry)
+
+
+def chain[C](*steps: Step[C], name: str | None = None) -> Step[C]:
+    """Run ``steps`` in order, each mutating the same carry."""
+    return _Chain(*steps, name=name)
+
+
+class _Repeat(Step[C]):
+    def __init__(
+        self,
+        step: Step[C],
+        *,
+        times: int | Callable[[C], int],
+        pre: Step[C] | None,
+        post: Step[C] | None,
+        swap: SwapPolicy,
+        swap_target: Callable[[C], Any] | None,
+        set_loop_context: Callable[[C, int, int], None] | None,
+        name: str | None,
+    ) -> None:
+        self.name = _default_name("repeat", name)
+        self._step = step
+        self._times = times
+        self._pre = pre
+        self._post = post
+        self._swap = swap
+        self._swap_target = swap_target
+        self._set_loop_context = set_loop_context
+
+    def __call__(self, carry: C) -> None:
+        total = self._times(carry) if callable(self._times) else self._times
+        if self._pre is not None:
+            self._pre(carry)
+        for index in range(total):
+            if self._set_loop_context is not None:
+                self._set_loop_context(carry, index, total)
+            self._step(carry)
+            if self._swap is not SwapPolicy.NEVER and self._swap_target is not None:
+                if self._swap is SwapPolicy.ALWAYS or index != total - 1:
+                    self._swap_target(carry).swap()
+        if self._post is not None:
+            self._post(carry)
+
+
+def repeat[C](
+    step: Step[C],
+    *,
+    times: int | Callable[[C], int],
+    pre: Step[C] | None = None,
+    post: Step[C] | None = None,
+    swap: SwapPolicy = SwapPolicy.NEVER,
+    swap_target: Callable[[C], Any] | None = None,
+    set_loop_context: Callable[[C, int, int], None] | None = None,
+    name: str | None = None,
+) -> Step[C]:
+    """Run ``step`` ``times`` in a row, with optional pre/post and swap policy.
+
+    ``times`` is re-evaluated each time the returned step is invoked when it is
+    a callable. ``set_loop_context`` is called before each iteration with the
+    current index and total count. ``swap_target`` must expose a ``.swap()``
+    method when a swap policy other than ``NEVER`` is used.
+    """
+    return _Repeat(
+        step,
+        times=times,
+        pre=pre,
+        post=post,
+        swap=swap,
+        swap_target=swap_target,
+        set_loop_context=set_loop_context,
+        name=name,
+    )
+
+
+class _When(Step[C]):
+    def __init__(
+        self,
+        predicate: Callable[[C], bool],
+        *,
+        then: Step[C],
+        else_: Step[C] | None,
+        name: str | None,
+    ) -> None:
+        self.name = _default_name("when", name)
+        self._predicate = predicate
+        self._then = then
+        self._else = else_
+
+    def __call__(self, carry: C) -> None:
+        if self._predicate(carry):
+            self._then(carry)
+        elif self._else is not None:
+            self._else(carry)
+
+
+def when[C](
+    predicate: Callable[[C], bool],
+    *,
+    then: Step[C],
+    else_: Step[C] | None = None,
+    name: str | None = None,
+) -> Step[C]:
+    """Run ``then`` when ``predicate(carry)`` is true, otherwise ``else_`` if given."""
+    return _When(predicate, then=then, else_=else_, name=name)
+
+
+class _Foreach(Step[C]):
+    def __init__(
+        self,
+        *steps: Step[C],
+        source: Callable[[C], Iterable[Any]],
+        set_item: Callable[[C, Any], None] | None,
+        name: str | None,
+    ) -> None:
+        self.name = _default_name("foreach", name)
+        self._steps = steps
+        self._source = source
+        self._set_item = set_item
+
+    def __call__(self, carry: C) -> None:
+        for item in self._source(carry):
+            if self._set_item is not None:
+                self._set_item(carry, item)
+            for step in self._steps:
+                step(carry)
+
+
+def foreach[C](
+    *steps: Step[C],
+    source: Callable[[C], Iterable[Any]],
+    set_item: Callable[[C, Any], None] | None = None,
+    name: str | None = None,
+) -> Step[C]:
+    """Iterate over ``source(carry)`` and run ``steps`` for each item.
+
+    If ``set_item`` is provided, it is called with the carry and the current
+    item before the steps run.
+    """
+    return _Foreach(*steps, source=source, set_item=set_item, name=name)
+
+
+class _Sample(Step[C]):
+    def __init__(
+        self,
+        step: Step[C],
+        *,
+        every: Any,
+        clock: Callable[[C], Any],
+        key: str,
+        cache: Callable[[C], dict[str, Any]],
+        name: str | None,
+    ) -> None:
+        self.name = _default_name("sample", name)
+        self._step = step
+        self._every = every
+        self._clock = clock
+        self._key = key
+        self._cache = cache
+
+    def __call__(self, carry: C) -> None:
+        cache = self._cache(carry)
+        firing = self._clock(carry) % self._every == 0
+        if firing or self._key not in cache:
+            self._step(carry)
+
+
+def sample[C](
+    step: Step[C],
+    *,
+    every: Any,
+    clock: Callable[[C], Any],
+    key: str,
+    cache: Callable[[C], dict[str, Any]],
+    name: str | None = None,
+) -> Step[C]:
+    """Run ``step`` only when the clock fires or the cache entry is missing.
+
+    ``firing`` is ``clock(carry) % every == 0``. On a firing step (or the first
+    in-window step with no cached value) ``step`` is expected to write a fresh
+    value into ``cache(carry)[key]``; otherwise the cached value is left in
+    place for downstream readers.
+    """
+    return _Sample(step, every=every, clock=clock, key=key, cache=cache, name=name)
