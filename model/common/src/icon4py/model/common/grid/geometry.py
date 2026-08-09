@@ -32,7 +32,7 @@ from icon4py.model.common.grid import (
     icon,
 )
 from icon4py.model.common.math import coordinate_transformations as coord_trans, utils as math_utils
-from icon4py.model.common.states import factory, model, utils as state_utils
+from icon4py.model.common.states import factory, model, spec, utils as state_utils
 from icon4py.model.common.utils import data_allocation as data_alloc, device_utils
 
 
@@ -259,6 +259,13 @@ class GridGeometry(factory.FieldSource):
             attrs.MEAN_EDGE_LENGTH: mean_edge_length,
             attrs.MEAN_DUAL_EDGE_LENGTH: mean_dual_edge_length,
             attrs.CHARACTERISTIC_LENGTH: math.sqrt(mean_cell_area),
+        }
+
+    @property
+    def field_specs(self) -> dict[str, spec.FieldSpec]:
+        """Return ``FieldSpec`` metadata for every field this source provides."""
+        return {
+            name: spec.field_spec_from_metadata(name, meta) for name, meta in self._attrs.items()
         }
 
     def _inverse_field_provider(self, field_name: str) -> factory.FieldProvider:

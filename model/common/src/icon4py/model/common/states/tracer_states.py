@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, NamedTuple
 
 from icon4py.model.common import dimension as dims, field_type_aliases as fa, type_alias as ta
+from icon4py.model.common.states import quantities as q, spec
 from icon4py.model.common.states.data import COMMON_TRACER_CF_ATTRIBUTES
 from icon4py.model.common.utils import data_allocation as data_alloc
 
@@ -114,17 +115,59 @@ class TracerState:
     """
 
     #: specific humidity [kg/kg] at cell center
-    qv: fa.CellKField[ta.wpfloat] | None = None
+    qv: fa.CellKField[ta.wpfloat] | None = spec.spec(
+        quantity=q.SPECIFIC_HUMIDITY.name,
+        units=q.SPECIFIC_HUMIDITY.units,
+        dims=q.SPECIFIC_HUMIDITY.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        default=None,
+    )
     #: specific cloud water content [kg/kg] at cell center
-    qc: fa.CellKField[ta.wpfloat] | None = None
+    qc: fa.CellKField[ta.wpfloat] | None = spec.spec(
+        quantity=q.SPECIFIC_CLOUD_CONTENT.name,
+        units=q.SPECIFIC_CLOUD_CONTENT.units,
+        dims=q.SPECIFIC_CLOUD_CONTENT.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        default=None,
+    )
     #: specific cloud ice content [kg/kg] at cell center
-    qi: fa.CellKField[ta.wpfloat] | None = None
+    qi: fa.CellKField[ta.wpfloat] | None = spec.spec(
+        quantity=q.SPECIFIC_ICE_CONTENT.name,
+        units=q.SPECIFIC_ICE_CONTENT.units,
+        dims=q.SPECIFIC_ICE_CONTENT.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        default=None,
+    )
     #: specific rain content [kg/kg] at cell center
-    qr: fa.CellKField[ta.wpfloat] | None = None
+    qr: fa.CellKField[ta.wpfloat] | None = spec.spec(
+        quantity=q.SPECIFIC_RAIN_CONTENT.name,
+        units=q.SPECIFIC_RAIN_CONTENT.units,
+        dims=q.SPECIFIC_RAIN_CONTENT.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        default=None,
+    )
     #: specific snow content [kg/kg] at cell center
-    qs: fa.CellKField[ta.wpfloat] | None = None
+    qs: fa.CellKField[ta.wpfloat] | None = spec.spec(
+        quantity=q.SPECIFIC_SNOW_CONTENT.name,
+        units=q.SPECIFIC_SNOW_CONTENT.units,
+        dims=q.SPECIFIC_SNOW_CONTENT.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        default=None,
+    )
     #: specific graupel content [kg/kg] at cell center
-    qg: fa.CellKField[ta.wpfloat] | None = None
+    qg: fa.CellKField[ta.wpfloat] | None = spec.spec(
+        quantity=q.SPECIFIC_GRAUPEL_CONTENT.name,
+        units=q.SPECIFIC_GRAUPEL_CONTENT.units,
+        dims=q.SPECIFIC_GRAUPEL_CONTENT.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        default=None,
+    )
 
     def active_fields(self) -> Iterator[TracerField]:
         """Yield a ``TracerField`` for each non-``None`` tracer field."""

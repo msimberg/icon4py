@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import gt4py.next as gtx
 
 from icon4py.model.common import dimension as dims, field_type_aliases as fa, type_alias as ta
+from icon4py.model.common.states import quantities as q, spec
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -27,19 +28,49 @@ class AdvectionDiagnosticState:
     """Represents the diagnostic fields needed in tracer_advection."""
 
     #: mass of air in layer at physics time step now [kg/m^2]
-    airmass_now: fa.CellKField[ta.wpfloat]
+    airmass_now: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.ICON_AIRMASS_NOW.name,
+        units=q.ICON_AIRMASS_NOW.units,
+        dims=q.ICON_AIRMASS_NOW.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
 
     #: mass of air in layer at physics time step new [kg/m^2]
-    airmass_new: fa.CellKField[ta.wpfloat]
+    airmass_new: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.ICON_AIRMASS_NEW.name,
+        units=q.ICON_AIRMASS_NEW.units,
+        dims=q.ICON_AIRMASS_NEW.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
 
     #: tracer tendency field for use in grid refinement [kg/kg/s]
-    grf_tend_tracer: fa.CellKField[ta.wpfloat]
+    grf_tend_tracer: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.ICON_GRF_TEND_TRACER.name,
+        units=q.ICON_GRF_TEND_TRACER.units,
+        dims=q.ICON_GRF_TEND_TRACER.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
 
     #: horizontal tracer flux at edges [kg/m/s]
-    hfl_tracer: fa.EdgeKField[ta.wpfloat]
+    hfl_tracer: fa.EdgeKField[ta.wpfloat] = spec.spec(
+        quantity=q.ICON_HFL_TRACER.name,
+        units=q.ICON_HFL_TRACER.units,
+        dims=q.ICON_HFL_TRACER.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
 
     #: vertical tracer flux at cells [kg/m/s]
-    vfl_tracer: fa.CellKField[ta.wpfloat]  # TODO(dastrm): should be KHalfDim
+    vfl_tracer: fa.CellKField[ta.wpfloat] = spec.spec(  # TODO(dastrm): should be KHalfDim
+        quantity=q.ICON_VFL_TRACER.name,
+        units=q.ICON_VFL_TRACER.units,
+        dims=q.ICON_VFL_TRACER.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -47,13 +78,31 @@ class AdvectionPrepAdvState:
     """Represents the prepare tracer_advection state needed in tracer_advection."""
 
     #: horizontal velocity at edges for computation of backward trajectories averaged over dynamics substeps [m/s]
-    vn_traj: fa.EdgeKField[ta.wpfloat]
+    vn_traj: fa.EdgeKField[ta.wpfloat] = spec.spec(
+        quantity=q.ICON_VN_TRAJ.name,
+        units=q.ICON_VN_TRAJ.units,
+        dims=q.ICON_VN_TRAJ.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
 
     #: mass flux at full level edges averaged over dynamics substeps [kg/m^2/s]
-    mass_flx_me: fa.EdgeKField[ta.wpfloat]
+    mass_flx_me: fa.EdgeKField[ta.wpfloat] = spec.spec(
+        quantity=q.ICON_MASS_FLX_ME.name,
+        units=q.ICON_MASS_FLX_ME.units,
+        dims=q.ICON_MASS_FLX_ME.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
 
     #: mass flux at half level centers averaged over dynamics substeps [kg/m^2/s]
-    mass_flx_ic: fa.CellKField[ta.wpfloat]  # TODO(dastrm): should be KHalfDim
+    mass_flx_ic: fa.CellKField[ta.wpfloat] = spec.spec(  # TODO(dastrm): should be KHalfDim
+        quantity=q.ICON_MASS_FLX_IC.name,
+        units=q.ICON_MASS_FLX_IC.units,
+        dims=q.ICON_MASS_FLX_IC.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
 
 
 @dataclasses.dataclass(frozen=True)

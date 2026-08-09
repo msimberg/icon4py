@@ -46,7 +46,7 @@ from icon4py.model.common.metrics import (
     reference_atmosphere,
     reference_atmosphere as ra,
 )
-from icon4py.model.common.states import factory, model
+from icon4py.model.common.states import factory, model, spec
 from icon4py.model.common.utils import data_allocation as data_alloc, fortran_config
 
 
@@ -216,6 +216,13 @@ class MetricsFieldsFactory(factory.FieldSource, factory.GridProvider):
     @property
     def _sources(self) -> factory.FieldSource:
         return factory.CompositeSource(me=self, others=(self._geometry, self._interpolation_source))
+
+    @property
+    def field_specs(self) -> dict[str, spec.FieldSpec]:
+        """Return ``FieldSpec`` metadata for every field this source provides."""
+        return {
+            name: spec.field_spec_from_metadata(name, meta) for name, meta in self._attrs.items()
+        }
 
     def _register_computed_fields(self) -> None:  # noqa: PLR0915 [too-many-statements]
         vertical_coordinates_on_half_levels = factory.NumpyDataProvider(

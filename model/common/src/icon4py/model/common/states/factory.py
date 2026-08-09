@@ -67,7 +67,7 @@ from icon4py.model.common.grid import (
     icon as icon_grid,
     vertical as v_grid,
 )
-from icon4py.model.common.states import model, utils as state_utils
+from icon4py.model.common.states import model, spec, utils as state_utils
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -190,7 +190,11 @@ class FieldSource(GridProvider, Protocol):
         to be used."""
         ...
 
-    def _backend_name(self) -> str:
+    @property
+    def field_specs(self) -> Mapping[str, spec.FieldSpec]:
+        """Return ``FieldSpec`` metadata for every field this source provides."""
+        ...
+
         return "embedded" if self.backend is None else self.backend.name
 
     @overload

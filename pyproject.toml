@@ -350,6 +350,7 @@ unfixable = []
 # RelativeTime / NumTimeSteps are aliases of immutable types (timedelta / int), so calling them
 # in argument or dataclass defaults is safe (B008, RUF009).
 extend-immutable-calls = [
+  "icon4py.model.common.states.spec.spec",
   "icon4py.model.common.time.NumTimeSteps",
   "icon4py.model.common.time.RelativeTime"
 ]

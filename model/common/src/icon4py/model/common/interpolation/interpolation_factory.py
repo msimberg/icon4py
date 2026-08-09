@@ -31,7 +31,7 @@ from icon4py.model.common.interpolation import (
     interpolation_fields,
     rbf_interpolation as rbf,
 )
-from icon4py.model.common.states import factory, model
+from icon4py.model.common.states import factory, model, spec
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -183,6 +183,13 @@ class InterpolationFieldsFactory(factory.FieldSource, factory.GridProvider):
     @property
     def _sources(self) -> factory.FieldSource:
         return factory.CompositeSource(me=self, others=(self._geometry,))
+
+    @property
+    def field_specs(self) -> dict[str, spec.FieldSpec]:
+        """Return ``FieldSpec`` metadata for every field this source provides."""
+        return {
+            name: spec.field_spec_from_metadata(name, meta) for name, meta in self._attrs.items()
+        }
 
     def _register_computed_fields(self) -> None:
         nudging_coefficients_for_edges = factory.ProgramFieldProvider(

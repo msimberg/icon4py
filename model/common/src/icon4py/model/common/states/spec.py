@@ -78,13 +78,17 @@ def spec(
     restart: bool = False,
     role: Role | None = None,
     default: Any = dataclasses.MISSING,
-) -> dataclasses.Field:
+) -> Any:
     """Return a ``dataclasses.field`` carrying a ``FieldSpec`` in its metadata.
 
     The field has no default unless ``default`` is explicitly supplied. This
     matches the gt4py program-argument rule that program arguments must be
     dataclasses without defaulted fields, while still allowing optional fields
     (e.g. inactive tracers) to declare a default of ``None``.
+
+    The return type is ``Any`` so that mypy accepts the assignment to typed
+    dataclass fields (``dataclasses.field`` itself is special-cased by mypy,
+    but wrappers around it are not).
     """
     field_spec = FieldSpec(
         quantity=quantity,
@@ -104,3 +108,25 @@ def spec(
 def get_field_spec(field: dataclasses.Field) -> FieldSpec | None:
     """Return the ``FieldSpec`` from a dataclass field, or ``None``."""
     return field.metadata.get("spec") if isinstance(field.metadata, dict) else None
+
+
+def field_spec_from_metadata(
+    field_name: str,
+    metadata: dict[str, Any],
+    *,
+    intent: Intent = Intent.READ,
+    lifetime: Lifetime = Lifetime.STATIC,
+) -> FieldSpec:
+    """Build a ``FieldSpec`` from the existing ``FieldMetaData`` shape.
+
+    The canonical quantity name is taken from ``standard_name`` when present;
+    otherwise ``icon:<field_name>`` is used.
+    """
+    standard_name = metadata.get("standard_name", f"icon:{field_name}")
+    return FieldSpec(
+        quantity=standard_name,
+        units=metadata.get("units", ""),
+        dims=metadata.get("dims", ()),
+        intent=intent,
+        lifetime=lifetime,
+    )

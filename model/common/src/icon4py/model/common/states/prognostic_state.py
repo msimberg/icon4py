@@ -12,6 +12,7 @@ import dataclasses
 from typing import TYPE_CHECKING
 
 from icon4py.model.common import dimension as dims, field_type_aliases as fa, type_alias as ta
+from icon4py.model.common.states import quantities as q, spec
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -30,13 +31,41 @@ class PrognosticState:
     once per model time step while these fields are advanced once per dynamics substep.
     """
 
-    rho: fa.CellKField[ta.wpfloat]  # density, rho(nproma, nlev, nblks_c) [kg/m^3]
-    w: fa.CellKField[ta.wpfloat]  # vertical_wind field, w(nproma, nlevp1, nblks_c) [m/s]
-    vn: fa.EdgeKField[
-        ta.wpfloat
-    ]  # horizontal wind normal to edges, vn(nproma, nlev, nblks_e)  [m/s]
-    exner: fa.CellKField[ta.wpfloat]  # exner function, exner(nrpoma, nlev, nblks_c)
-    theta_v: fa.CellKField[ta.wpfloat]  # virtual temperature, (nproma, nlev, nlbks_c) [K]
+    rho: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.AIR_DENSITY.name,
+        units=q.AIR_DENSITY.units,
+        dims=q.AIR_DENSITY.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )  # density, rho(nproma, nlev, nblks_c) [kg/m^3]
+    w: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.UPWARD_AIR_VELOCITY.name,
+        units=q.UPWARD_AIR_VELOCITY.units,
+        dims=q.UPWARD_AIR_VELOCITY.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )  # vertical_wind field, w(nproma, nlevp1, nblks_c) [m/s]
+    vn: fa.EdgeKField[ta.wpfloat] = spec.spec(
+        quantity=q.NORMAL_VELOCITY.name,
+        units=q.NORMAL_VELOCITY.units,
+        dims=q.NORMAL_VELOCITY.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )  # horizontal wind normal to edges, vn(nproma, nlev, nblks_e)  [m/s]
+    exner: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.DIMENSIONLESS_EXNER_FUNCTION.name,
+        units=q.DIMENSIONLESS_EXNER_FUNCTION.units,
+        dims=q.DIMENSIONLESS_EXNER_FUNCTION.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )  # exner function, exner(nrpoma, nlev, nblks_c)
+    theta_v: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.VIRTUAL_POTENTIAL_TEMPERATURE.name,
+        units=q.VIRTUAL_POTENTIAL_TEMPERATURE.units,
+        dims=q.VIRTUAL_POTENTIAL_TEMPERATURE.dims,
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )  # virtual temperature, (nproma, nlev, nlbks_c) [K]
 
     @property
     def w_1(self) -> fa.CellField[ta.wpfloat]:

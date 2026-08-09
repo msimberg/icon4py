@@ -308,3 +308,40 @@ ICON_COEFF2_DWDZ: Final[Quantity] = register(
 ICON_MASK_PROG_HALO_C: Final[Quantity] = register(
     "icon:mask_prog_halo_c", "", (dims.CellDim, dims.KDim), "mask_prog_halo_c"
 )
+
+#: Quantities registered from factory metadata, exposed as constants for use in
+#: state dataclass declarations.
+C_LIN_E: Final[Quantity] = get("interpolation_coefficient_from_cell_to_edge")
+COEFF_GRADEKIN: Final[Quantity] = get("coeff_gradekin")
+DDQZ_Z_HALF: Final[Quantity] = get("functional_determinant_of_metrics_on_interface_levels")
+D2DEXDZ2_FAC1_MC: Final[Quantity] = get("d2dexdz2_fac1_mc")
+D2DEXDZ2_FAC2_MC: Final[Quantity] = get("d2dexdz2_fac2_mc")
+D_EXNER_DZ_REF_IC: Final[Quantity] = get("d_exner_dz_ref_ic")
+E_BLN_C_S: Final[Quantity] = get("bilinear_edge_cell_weight")
+E_FLX_AVG: Final[Quantity] = get("e_flux_average")
+EXNER_EXFAC: Final[Quantity] = get("exner_exfac")
+EXNER_REF_MC: Final[Quantity] = get("exner_ref_mc")
+EXNER_W_EXPLICIT_WEIGHT_PARAMETER: Final[Quantity] = get("exner_w_explicit_weight_parameter")
+EXNER_W_IMPLICIT_WEIGHT_PARAMETER: Final[Quantity] = get("exner_w_implicit_weight_parameter")
+GEOFAC_DIV: Final[Quantity] = get("geometrical_factor_for_divergence")
+GEOFAC_GRDIV: Final[Quantity] = get("geometrical_factor_for_gradient_of_divergence")
+GEOFAC_GRG_X: Final[Quantity] = get("geometrical_factor_for_green_gauss_gradient_x")
+GEOFAC_GRG_Y: Final[Quantity] = get("geometrical_factor_for_green_gauss_gradient_y")
+GEOFAC_N2S: Final[Quantity] = get("geometrical_factor_for_nabla_2_scalar")
+GEOFAC_ROT: Final[Quantity] = get("geometrical_factor_for_curl")
+HORIZONTAL_MASK_FOR_3D_DIVDAMP: Final[Quantity] = get("horizontal_mask_for_3d_divdamp")
+INV_DDQZ_Z_FULL: Final[Quantity] = get(
+    "inverse_of_functional_determinant_of_metrics_on_full_levels"
+)
+NUDGECOEFFS_E: Final[Quantity] = get("nudging_coefficients_for_edges")
+RBF_VEC_COEFF_V1: Final[Quantity] = get("rbf_interpolation_coefficient_vertex_1")
+RBF_VEC_COEFF_V2: Final[Quantity] = get("rbf_interpolation_coefficient_vertex_2")
+RAYLEIGH_W: Final[Quantity] = get("rayleigh_w")
+RHO_REF_MC: Final[Quantity] = get("rho_ref_mc")
+RHO_REF_ME: Final[Quantity] = get("rho_ref_me")
+SCALING_FACTOR_FOR_3D_DIVDAMP: Final[Quantity] = get("scaling_factor_for_3d_divergence_damping")
+THETA_REF_IC: Final[Quantity] = get("theta_ref_ic")
+THETA_REF_MC: Final[Quantity] = get("theta_ref_mc")
+THETA_REF_ME: Final[Quantity] = get("theta_ref_me")
+WGTFAC_C: Final[Quantity] = get("wgtfac_c")
+WGTFACQ_C: Final[Quantity] = get("weighting_factor_for_quadratic_interpolation_to_cell_surface")
