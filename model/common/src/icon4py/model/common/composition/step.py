@@ -14,10 +14,10 @@ import enum
 from typing import Protocol, TypeVar
 
 
-C = TypeVar("C")
+C_contra = TypeVar("C_contra", contravariant=True)
 
 
-class Step(Protocol[C]):
+class Step(Protocol[C_contra]):
     """A named, state-mutating step in a driver composition.
 
     Steps operate on a carry object in place and return ``None``; the carry
@@ -27,7 +27,7 @@ class Step(Protocol[C]):
 
     name: str
 
-    def __call__(self, carry: C) -> None: ...
+    def __call__(self, carry: C_contra) -> None: ...
 
 
 class SwapPolicy(enum.Enum):

@@ -168,14 +168,32 @@ def test_foreach_without_set_item_runs_steps_per_item() -> None:
     assert carry.log == ["x", "x"]
 
 
+class _ComputeStep(Step[_Carry]):
+    def __init__(self) -> None:
+        self.name: str = "compute"
+
+    def __call__(self, c: _Carry) -> None:
+        c.cache["p"] = c.cache.get("p", 0) + 1
+
+
+class _StaleStep(Step[_Carry]):
+    def __init__(self) -> None:
+        self.name: str = "compute"
+
+    def __call__(self, c: _Carry) -> None:
+        c.cache["p"] = "STALE"
+
+
+class _FreshStep(Step[_Carry]):
+    def __init__(self) -> None:
+        self.name: str = "compute"
+
+    def __call__(self, c: _Carry) -> None:
+        c.cache["p"] = "FRESH"
+
+
 def test_sample_runs_on_firing_step_and_caches() -> None:
     carry = _Carry()
-
-    class _ComputeStep:
-        name = "compute"
-
-        def __call__(self, c: _Carry) -> None:
-            c.cache["p"] = c.cache.get("p", 0) + 1
 
     step = sample(
         _ComputeStep(),
@@ -192,14 +210,8 @@ def test_sample_recycles_cached_outputs_on_inactive_step() -> None:
     carry = _Carry()
     carry.cache["p"] = "FRESH"
 
-    class _ComputeStep:
-        name = "compute"
-
-        def __call__(self, c: _Carry) -> None:
-            c.cache["p"] = "STALE"
-
     step = sample(
-        _ComputeStep(),
+        _StaleStep(),
         every=datetime.timedelta(seconds=300),
         clock=lambda c: datetime.timedelta(seconds=150),
         key="p",
@@ -212,14 +224,8 @@ def test_sample_recycles_cached_outputs_on_inactive_step() -> None:
 def test_sample_computes_when_first_in_window_inactive_and_cache_empty() -> None:
     carry = _Carry()
 
-    class _ComputeStep:
-        name = "compute"
-
-        def __call__(self, c: _Carry) -> None:
-            c.cache["p"] = "FRESH"
-
     step = sample(
-        _ComputeStep(),
+        _FreshStep(),
         every=datetime.timedelta(seconds=300),
         clock=lambda c: datetime.timedelta(seconds=150),
         key="p",
