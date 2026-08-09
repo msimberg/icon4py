@@ -23,13 +23,11 @@ from icon4py.model.common import (
     model_backends,
     model_options,
     prescribed_tendencies,
-    time,
     topography,
 )
 from icon4py.model.common.decomposition import definitions as decomposition_defs
 from icon4py.model.common.grid import grid_manager as gm, vertical as v_grid
 from icon4py.model.common.grid.icon import IconGrid
-from icon4py.model.common.interpolation import interpolation_attributes as intp_attr
 from icon4py.model.common.io import io as common_io
 from icon4py.model.common.metrics import metrics_attributes as metrics_attr
 from icon4py.model.common.states import (
@@ -102,16 +100,6 @@ class Icon4pyDriver:
     def _xp(self) -> types.ModuleType:
         return data_alloc.import_array_ns(self._allocator)
 
-    def _is_last_substep(self, step_nr: int) -> bool:
-        return step_nr == (self.model_time_variables.ndyn_substeps_var - 1)
-
-    @staticmethod
-    def _is_first_substep(step_nr: int) -> bool:
-        return step_nr == 0
-
-    def _full_name(self, func: Callable) -> str:
-        return f"{self.__class__.__name__}:{func.__name__}"
-
     @functools.cached_property
     def _diagnostics_computer(self) -> driver_io.DiagnosticsComputer:
         """Reuses its scratch/output buffers across output steps (allocated once)."""
@@ -144,30 +132,6 @@ class Icon4pyDriver:
             },
             offset_provider={},
         )
-
-    def _store_output(
-        self,
-        prognostic_state: prognostics.PrognosticState,
-        simulation_current_datetime: time.AbsoluteTime,
-    ) -> None:
-        """Assemble the prognostic + diagnostic fields and hand them to the IO monitor.
-
-        The assembled DataArrays reference the live state (see ``io.utils.to_data_array``),
-        so they must be written here and now -- before the next step mutates the state. The
-        static diagnostic inputs are fetched directly from the field factories.
-        """
-        assert self.io_monitor is not None
-        metrics = self.static_field_factories.metrics
-        interpolation = self.static_field_factories.interpolation
-        state_to_store = driver_io.prognostic_state_to_dataarrays(prognostic_state)
-        diagnostic_fields = self._diagnostics_computer.compute(
-            prognostic_state,
-            ddqz_z_full=metrics.get(metrics_attr.DDQZ_Z_FULL),
-            rbf_vec_coeff_c1=interpolation.get(intp_attr.RBF_VEC_COEFF_C1),
-            rbf_vec_coeff_c2=interpolation.get(intp_attr.RBF_VEC_COEFF_C2),
-        )
-        state_to_store.update(driver_io.diagnostic_fields_to_dataarrays(diagnostic_fields))
-        self.io_monitor.store(state_to_store, simulation_current_datetime)
 
     def _build_carry(self, ds: driver_states.DriverStates) -> DriverLoopState:
         return DriverLoopState(
