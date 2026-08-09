@@ -31,7 +31,7 @@ from icon4py.model.common.states import (
     prognostic_state as prognostics,
 )
 from icon4py.model.common.utils import data_allocation as data_alloc
-from icon4py.model.standalone_driver import driver_io, edsl_driver
+from icon4py.model.standalone_driver import driver_io, edsl_driver, plain_driver
 from icon4py.model.standalone_driver.standalone_driver import Icon4pyDriver
 from icon4py.model.testing.fixtures import backend
 
@@ -291,8 +291,12 @@ def test_diagnostic_fields_to_dataarrays(grid: base.Grid) -> None:
     assert before == state_data.DIAGNOSTIC_CF_ATTRIBUTES
 
 
-def test_io_monitor_close_is_called_when_store_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If the IO monitor raises mid-run, ``time_integration`` still closes it."""
+@pytest.mark.parametrize("use_plain_driver", [False, True])
+def test_io_monitor_close_is_called_when_store_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    use_plain_driver: bool,
+) -> None:
+    """If the IO monitor raises mid-run, the driver still closes it."""
 
     class _RaisingStep:
         name = "raising_io_snapshot"
@@ -336,14 +340,20 @@ def test_io_monitor_close_is_called_when_store_raises(monkeypatch: pytest.Monkey
     )()
 
     io_monitor = _FakeServices.io_monitor
-    driver = object.__new__(Icon4pyDriver)
-    driver.io_monitor = io_monitor  # type: ignore[assignment]
-    driver.model_time_variables = _FakeClock()  # type: ignore[assignment]
-    driver._build_carry = lambda ds: fake_carry  # type: ignore[method-assign]
 
-    monkeypatch.setattr(edsl_driver, "io_snapshot_step", _RaisingStep())
+    if use_plain_driver:
+        monkeypatch.setattr(plain_driver, "io_snapshot_step", _RaisingStep())
+        with pytest.raises(RuntimeError, match="store failed"):
+            plain_driver.run_time_integration_plain(fake_carry)
+    else:
+        driver = object.__new__(Icon4pyDriver)
+        driver.io_monitor = io_monitor  # type: ignore[assignment]
+        driver.model_time_variables = _FakeClock()  # type: ignore[assignment]
+        driver._build_carry = lambda ds: fake_carry  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="store failed"):
-        driver.time_integration(None)  # type: ignore[arg-type]
+        monkeypatch.setattr(edsl_driver, "io_snapshot_step", _RaisingStep())
+
+        with pytest.raises(RuntimeError, match="store failed"):
+            driver.time_integration(None)  # type: ignore[arg-type]
 
     assert io_monitor.close_called

@@ -529,8 +529,6 @@ def _finalize(carry: DriverLoopState) -> None:
     ):
         print(gtx_metrics.dumps())
         gtx_metrics.dump_json(profiling_options.gt4py_metrics_output_file)
-    if carry.services.io_monitor is not None:
-        carry.services.io_monitor.close()
 
 
 finalize_step = _as_step("finalize_step", _finalize)
