@@ -11,6 +11,7 @@
 Uses the smallest full-driver experiment (JW) as a datatest fallback.
 """
 
+import dataclasses
 import datetime
 import pathlib
 
@@ -21,7 +22,7 @@ import pytest
 from icon4py.model.common import model_backends
 from icon4py.model.common.decomposition import definitions as decomp_defs
 from icon4py.model.common.states import prognostic_state as prognostics, tracer_states
-from icon4py.model.common.utils import TimeStepPair
+from icon4py.model.common.utils import PredictorCorrectorPair, TimeStepPair
 from icon4py.model.standalone_driver import config as driver_config, driver_utils, standalone_driver
 from icon4py.model.testing import datatest_utils as dt_utils, definitions as test_defs, grid_utils
 
@@ -61,6 +62,17 @@ def _field_equality(left: object, right: object) -> bool:
         return left is right
     if hasattr(left, "ndarray") and hasattr(right, "ndarray"):
         return np.array_equal(left.ndarray, right.ndarray)
+    if isinstance(left, PredictorCorrectorPair) and isinstance(right, PredictorCorrectorPair):
+        return _field_equality(left.predictor, right.predictor) and _field_equality(
+            left.corrector, right.corrector
+        )
+    if dataclasses.is_dataclass(left) and dataclasses.is_dataclass(right):
+        if left.__class__ is not right.__class__:
+            return False
+        return all(
+            _field_equality(getattr(left, field.name), getattr(right, field.name))
+            for field in dataclasses.fields(left)
+        )
     return left == right
 
 
@@ -95,10 +107,11 @@ def _compare_tracer_pair(
     right: TimeStepPair[tracer_states.TracerState],
 ) -> None:
     for tracer_current in left.current.active_fields():
+        tracer_current_right = getattr(right.current, tracer_current.name)
         tracer_next_left = getattr(left.next, tracer_current.name)
         tracer_next_right = getattr(right.next, tracer_current.name)
         _assert_fields_equal(
-            f"{name}.current.{tracer_current.name}", tracer_current.field, tracer_current.field
+            f"{name}.current.{tracer_current.name}", tracer_current.field, tracer_current_right
         )
         _assert_fields_equal(
             f"{name}.next.{tracer_current.name}", tracer_next_left, tracer_next_right
@@ -185,9 +198,9 @@ def test_edsl_and_plain_driver_produce_bit_identical_results(
         and ds_plain.solve_nonhydro_diagnostic is not None
     ):
         _assert_fields_equal(
-            "solve_nonhydro_diagnostic.max_vertical_cfl",
-            ds_edsl.solve_nonhydro_diagnostic.max_vertical_cfl,
-            ds_plain.solve_nonhydro_diagnostic.max_vertical_cfl,
+            "solve_nonhydro_diagnostic",
+            ds_edsl.solve_nonhydro_diagnostic,
+            ds_plain.solve_nonhydro_diagnostic,
         )
 
     if ds_edsl.diffusion_diagnostic is not None and ds_plain.diffusion_diagnostic is not None:
@@ -202,12 +215,7 @@ def test_edsl_and_plain_driver_produce_bit_identical_results(
         and ds_plain.tracer_advection_diagnostic is not None
     ):
         _assert_fields_equal(
-            "tracer_advection_diagnostic.airmass_now",
-            ds_edsl.tracer_advection_diagnostic.airmass_now,
-            ds_plain.tracer_advection_diagnostic.airmass_now,
-        )
-        _assert_fields_equal(
-            "tracer_advection_diagnostic.airmass_new",
-            ds_edsl.tracer_advection_diagnostic.airmass_new,
-            ds_plain.tracer_advection_diagnostic.airmass_new,
+            "tracer_advection_diagnostic",
+            ds_edsl.tracer_advection_diagnostic,
+            ds_plain.tracer_advection_diagnostic,
         )
