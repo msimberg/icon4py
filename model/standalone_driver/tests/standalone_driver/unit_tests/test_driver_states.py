@@ -19,6 +19,7 @@ import pytest
 from icon4py.model.atmosphere.dycore import dycore_states
 from icon4py.model.common import dimension as dims, type_alias as ta
 from icon4py.model.common.grid import base, simple
+from icon4py.model.common.states import validation
 from icon4py.model.common.utils import data_allocation as data_alloc
 from icon4py.model.standalone_driver import config as driver_config, driver_states
 from icon4py.model.standalone_driver.driver_loop_state import (
@@ -145,3 +146,13 @@ def test_driver_loop_state_begin_substep_builds_step_info() -> None:
     assert carry.step_info.at_first_substep is False
     assert carry.step_info.at_last_substep is True
     assert carry.step_info.at_initial_timestep is False
+
+
+def test_prep_advection_field_coverage(grid: base.Grid) -> None:
+    """The standalone-driver PrepAdvection helper must pass exactly the fields the dataclass declares."""
+    target_classes = (dycore_states.PrepAdvection,)
+    call_sites = validation.kwargs_at_constructor_calls(_prep_advection, target_classes)
+    validation.assert_field_coverage(
+        dycore_states.PrepAdvection,
+        {name: None for name in call_sites.get("PrepAdvection", set())},
+    )

@@ -150,8 +150,10 @@ explicit_package_bases = true
 files = [
   # TODO(egparedes): activate for all sources and tests
   '$MYPY_CONFIG_FILE_DIR/model/atmosphere/tracer_advection/src',
+  '$MYPY_CONFIG_FILE_DIR/model/atmosphere/tracer_advection/tests/tracer_advection/unit_tests/test_field_coverage.py',
   # '$MYPY_CONFIG_FILE_DIR/model/atmosphere/tracer_advection/tests',
   '$MYPY_CONFIG_FILE_DIR/model/atmosphere/diffusion/src',
+  '$MYPY_CONFIG_FILE_DIR/model/atmosphere/diffusion/tests/diffusion/unit_tests/test_field_coverage.py',
   # '$MYPY_CONFIG_FILE_DIR/model/atmosphere/diffusion/tests',
   '$MYPY_CONFIG_FILE_DIR/model/atmosphere/dycore/src',
   '$MYPY_CONFIG_FILE_DIR/model/atmosphere/dycore/tests/',
@@ -172,6 +174,7 @@ files = [
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/metrics',
   '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/spec.py',
   '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/quantities.py',
+  '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/validation.py',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/states',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/math',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/interpolation',
@@ -184,10 +187,12 @@ files = [
   '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/topography',
   # '$MYPY_CONFIG_FILE_DIR/model/driver/src/',
   # '$MYPY_CONFIG_FILE_DIR/model/driver/tests/',
-  '$MYPY_CONFIG_FILE_DIR/model/testing/src/',
+  '$MYPY_CONFIG_FILE_DIR/model/testing/src',
+  '$MYPY_CONFIG_FILE_DIR/model/testing/tests/testing/unit_tests/test_field_coverage.py',
   # '$MYPY_CONFIG_FILE_DIR/model/testing/tests/',
   '$MYPY_CONFIG_FILE_DIR/tools/src/',
-  '$MYPY_CONFIG_FILE_DIR/bindings/src/',
+  '$MYPY_CONFIG_FILE_DIR/bindings/src',
+  '$MYPY_CONFIG_FILE_DIR/bindings/tests/bindings/test_field_coverage.py',
   '$MYPY_CONFIG_FILE_DIR/model/standalone_driver/src',
   '$MYPY_CONFIG_FILE_DIR/model/standalone_driver/tests'
 ]

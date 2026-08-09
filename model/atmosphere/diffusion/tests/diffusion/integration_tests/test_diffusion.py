@@ -62,9 +62,7 @@ def _get_or_initialize(experiment: test_defs.Experiment, backend: gtx_typing.Bac
             tangent_orientation=geometry_.get(geometry_meta.TANGENT_ORIENTATION),
             coriolis_frequency=geometry_.get(geometry_meta.CORIOLIS_PARAMETER),
             edge_areas=geometry_.get(geometry_meta.EDGE_AREA),
-            primal_edge_lengths=geometry_.get(geometry_meta.EDGE_LENGTH),
             inverse_primal_edge_lengths=geometry_.get(f"inverse_of_{geometry_meta.EDGE_LENGTH}"),
-            dual_edge_lengths=geometry_.get(geometry_meta.DUAL_EDGE_LENGTH),
             inverse_dual_edge_lengths=geometry_.get(f"inverse_of_{geometry_meta.DUAL_EDGE_LENGTH}"),
             inverse_vertex_vertex_lengths=geometry_.get(
                 f"inverse_of_{geometry_meta.VERTEX_VERTEX_LENGTH}"

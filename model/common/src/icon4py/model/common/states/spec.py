@@ -107,7 +107,7 @@ def spec(
 
 def get_field_spec(field: dataclasses.Field) -> FieldSpec | None:
     """Return the ``FieldSpec`` from a dataclass field, or ``None``."""
-    return field.metadata.get("spec") if isinstance(field.metadata, dict) else None
+    return field.metadata.get("spec") if hasattr(field.metadata, "get") else None
 
 
 def field_spec_from_metadata(

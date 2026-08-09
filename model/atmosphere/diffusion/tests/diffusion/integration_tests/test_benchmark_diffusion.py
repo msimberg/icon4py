@@ -82,11 +82,9 @@ def test_diffusion_benchmark(  # noqa: PLR0917 [too-many-positional-arguments]
         tangent_orientation=geometry_field_source.get(geometry_meta.TANGENT_ORIENTATION),
         coriolis_frequency=geometry_field_source.get(geometry_meta.CORIOLIS_PARAMETER),
         edge_areas=geometry_field_source.get(geometry_meta.EDGE_AREA),
-        primal_edge_lengths=geometry_field_source.get(geometry_meta.EDGE_LENGTH),
         inverse_primal_edge_lengths=geometry_field_source.get(
             f"inverse_of_{geometry_meta.EDGE_LENGTH}"
         ),
-        dual_edge_lengths=geometry_field_source.get(geometry_meta.DUAL_EDGE_LENGTH),
         inverse_dual_edge_lengths=geometry_field_source.get(
             f"inverse_of_{geometry_meta.DUAL_EDGE_LENGTH}"
         ),
