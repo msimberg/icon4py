@@ -125,16 +125,18 @@ class TestProcessTimeControl:
 
 def test_physics_process_construction() -> None:
     class _DummyComponent:
-        inputs_properties = {}
-        outputs_properties = {}
+        inputs_properties: dict[str, dict[str, object]] = {}
+        outputs_properties: dict[str, dict[str, object]] = {}
 
-        def __call__(self, state, time_step):
+        def __call__(
+            self, state: dict[str, object], time_step: datetime.datetime
+        ) -> dict[str, object]:
             return {}
 
     state = RecordingPhysicsState()
     proc = PhysicsProcess(
         name="muphys",
-        component=_DummyComponent(),
+        component=_DummyComponent(),  # type: ignore[arg-type]
         state=state,
         time_control=_tc(),
     )
@@ -160,17 +162,17 @@ class RecordingComponent:
     last_time: datetime.datetime | None = None
 
     @property
-    def inputs_properties(self) -> dict:
+    def inputs_properties(self) -> dict[str, dict[str, object]]:
         return {}
 
     @property
-    def outputs_properties(self) -> dict:
+    def outputs_properties(self) -> dict[str, dict[str, object]]:
         return {
             k: {"standard_name": k, "units": "1", "kind": self.output_kinds[k]}
             for k in self.outputs
         }
 
-    def __call__(self, state, time_step):
+    def __call__(self, state: dict[str, object], time_step: datetime.datetime) -> dict[str, object]:
         self.call_count += 1
         self.last_state = state
         self.last_time = time_step
@@ -185,13 +187,15 @@ class RecordingPhysicsState(PhysicsState):
     gather_calls: list = dataclasses.field(default_factory=list)
     scatter_calls: list = dataclasses.field(default_factory=list)
 
-    def gather_from_prognostic(self, prognostic, tracers) -> None:
+    def gather_from_prognostic(self, prognostic: object, tracers: object) -> None:
         self.gather_calls.append(prognostic)
 
-    def as_component_input(self) -> dict:
+    def as_component_input(self) -> dict[str, object]:
         return {"foo": "bar"}
 
-    def scatter_to_prognostic(self, prognostic, outputs, dtime) -> None:
+    def scatter_to_prognostic(
+        self, prognostic: object, outputs: dict[str, object], dtime: datetime.timedelta
+    ) -> None:
         self.scatter_calls.append((prognostic, outputs, dtime))
 
 
@@ -219,12 +223,13 @@ def _make_process(
     time_control: ProcessTimeControl | None = None,
     forcing_mode: ForcingMode = ForcingMode.APPLY,
 ) -> PhysicsProcess:
+    component = RecordingComponent(
+        outputs=outputs,
+        output_kinds={k: "tendency" for k in outputs},
+    )
     return PhysicsProcess(
         name=name,
-        component=RecordingComponent(
-            outputs=outputs,
-            output_kinds={k: "tendency" for k in outputs},
-        ),
+        component=component,  # type: ignore[arg-type]
         state=RecordingPhysicsState(),
         time_control=time_control if time_control is not None else _tc(),
         forcing_mode=forcing_mode,
@@ -370,14 +375,14 @@ def test_driver_run_matches_composition() -> None:
     driver = PhysicsDriver([proc], dtime=_DT)
 
     driver.run(
-        prognostic="prog",
-        tracers="tracers",
+        prognostic="prog",  # type: ignore[arg-type]
+        tracers="tracers",  # type: ignore[arg-type]
         dtime=_DT,
         simulation_current_datetime=_T0,
     )
     driver.run(
-        prognostic="prog",
-        tracers="tracers",
+        prognostic="prog",  # type: ignore[arg-type]
+        tracers="tracers",  # type: ignore[arg-type]
         dtime=_DT,
         simulation_current_datetime=_T0 + _DT,
     )
