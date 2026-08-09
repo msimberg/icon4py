@@ -193,8 +193,11 @@ class FieldSource(GridProvider, Protocol):
     @property
     def field_specs(self) -> Mapping[str, spec.FieldSpec]:
         """Return ``FieldSpec`` metadata for every field this source provides."""
-        ...
+        return {
+            name: spec.field_spec_from_metadata(name, meta) for name, meta in self.metadata.items()
+        }
 
+    def _backend_name(self) -> str:
         return "embedded" if self.backend is None else self.backend.name
 
     @overload
