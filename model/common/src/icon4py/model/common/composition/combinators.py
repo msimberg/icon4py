@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Callable, Iterable
 from typing import Any, TypeVar
 
@@ -177,8 +178,8 @@ class _Sample(Step[C]):
         self,
         step: Step[C],
         *,
-        every: Any,
-        clock: Callable[[C], Any],
+        every: datetime.timedelta | int,
+        clock: Callable[[C], datetime.timedelta | int],
         key: str,
         cache: Callable[[C], dict[str, Any]],
         name: str | None,
@@ -189,10 +190,20 @@ class _Sample(Step[C]):
         self._clock = clock
         self._key = key
         self._cache = cache
+        if isinstance(every, datetime.timedelta):
+            assert every > datetime.timedelta(0), "sample 'every' must be positive"
+        else:
+            assert every > 0, "sample 'every' must be positive"
 
     def __call__(self, carry: C) -> None:
         cache = self._cache(carry)
-        firing = self._clock(carry) % self._every == 0
+        clock_value = self._clock(carry)
+        if isinstance(self._every, datetime.timedelta):
+            assert isinstance(clock_value, datetime.timedelta)
+            firing = clock_value % self._every == datetime.timedelta(0)
+        else:
+            assert isinstance(clock_value, int)
+            firing = clock_value % self._every == 0
         if firing or self._key not in cache:
             self._step(carry)
 
@@ -200,8 +211,8 @@ class _Sample(Step[C]):
 def sample[C](
     step: Step[C],
     *,
-    every: Any,
-    clock: Callable[[C], Any],
+    every: datetime.timedelta | int,
+    clock: Callable[[C], datetime.timedelta | int],
     key: str,
     cache: Callable[[C], dict[str, Any]],
     name: str | None = None,

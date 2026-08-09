@@ -237,11 +237,11 @@ def test_sample_computes_when_first_in_window_inactive_and_cache_empty() -> None
 
 def test_sample_every_positive_is_required_for_modulo() -> None:
     """The recycle semantics assume ``every > 0`` so that modulo is well-defined."""
-    with pytest.raises(ZeroDivisionError):
+    with pytest.raises(AssertionError):
         sample(
             _append("x"),
             every=datetime.timedelta(0),
             clock=lambda c: datetime.timedelta(seconds=0),
             key="p",
             cache=lambda c: c.cache,
-        )(_Carry())
+        )
