@@ -44,7 +44,7 @@ def build_time_integration_composition(
     but expose no component metadata.
 
     ``derived_quantities`` is the canonical T/p/u/v component; when ``None`` the
-    step is a no-op.
+    step is omitted from the composition.
     """
     outer_step = chain(
         advance_clock_step,
@@ -79,7 +79,10 @@ def build_time_integration_composition(
             lambda c: c.granules.physics is not None,
             then=build_physics_composition_step(granules.physics if granules is not None else None),
         ),
-        build_update_derived_quantities_step(derived_quantities),
+        when(
+            lambda c: derived_quantities is not None,
+            then=build_update_derived_quantities_step(derived_quantities),
+        ),
         swap_step,
         sync_step,
         end_of_step_step,

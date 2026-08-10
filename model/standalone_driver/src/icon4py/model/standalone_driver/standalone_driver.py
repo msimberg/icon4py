@@ -108,8 +108,15 @@ class Icon4pyDriver:
         return driver_io.DiagnosticsComputer(grid=self.grid, backend=self.backend)
 
     @functools.cached_property
-    def _derived_quantities(self) -> DerivedQuantities:
-        """Canonical T/p/u/v derivation (allocated once, run every time step)."""
+    def _derived_quantities(self) -> DerivedQuantities | None:
+        """Canonical T/p/u/v derivation (allocated once, run every time step).
+
+        The derivation needs the hydrometeor tracers (at minimum qv). When the
+        experiment does not configure them, the step is omitted from the loop.
+        """
+        tracer_config = self.config.tracer_config
+        if tracer_config is None or not tracer_config.qv:
+            return None
         return DerivedQuantities(grid=self.grid, backend=self.backend)
 
     @functools.cached_property
