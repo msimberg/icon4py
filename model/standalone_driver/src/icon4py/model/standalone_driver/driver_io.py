@@ -34,6 +34,7 @@ from icon4py.model.common.states import (
     data as state_data,
     diagnostic_state as diagnostics,
     prognostic_state as prognostics,
+    quantities,
     spec as field_spec,
     tracer_states as tracers,
 )
@@ -116,28 +117,20 @@ def _quantities_with_label(cls: type[Any], label: str) -> list[str]:
     ]
 
 
-_STANDARD_NAME_TO_CF_KEY: Final[dict[str, str]] = {
-    meta.get("standard_name", key): key
-    for catalog in (
-        state_data.PROGNOSTIC_CF_ATTRIBUTES,
-        state_data.COMMON_TRACER_CF_ATTRIBUTES,
-        state_data.DIAGNOSTIC_CF_ATTRIBUTES,
-    )
-    for key, meta in catalog.items()
-}
-
-
 def output_variables() -> list[str]:
     """Return the CF variable names of all fields labeled ``output``.
 
     Replaces the hand-picked ``PROGNOSTIC_VARIABLES`` / ``DIAGNOSTIC_VARIABLES``
     lists with a query over the declarations.
     """
-    quantities = [
+    variable_quantities = [
         *_quantities_with_label(prognostics.PrognosticState, "output"),
         *_quantities_with_label(diagnostics.DiagnosticState, "output"),
     ]
-    return sorted(_STANDARD_NAME_TO_CF_KEY[q] for q in quantities)
+    return sorted(
+        (quantity.cf_key if quantity.cf_key is not None else quantity.name)
+        for quantity in (quantities.get(q) for q in variable_quantities)
+    )
 
 
 #: All output variables (prognostic + diagnostic), written together into the same file.

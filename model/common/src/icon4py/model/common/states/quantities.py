@@ -44,17 +44,28 @@ class Quantity:
     #: ICON Fortran variable name for the binding seam.
     icon_fortran_name: str
 
+    #: CF output variable key, when it differs from the canonical ``name``.
+    #: If ``None``, output code falls back to ``name``.
+    cf_key: str | None = None
+
 
 _REGISTRY: dict[str, Quantity] = {}
 
 
 def register(
-    name: str, units: str, dims: tuple[gtx.Dimension, ...], icon_fortran_name: str
+    name: str,
+    units: str,
+    dims: tuple[gtx.Dimension, ...],
+    icon_fortran_name: str,
+    *,
+    cf_key: str | None = None,
 ) -> Quantity:
     """Register a canonical quantity."""
     if name in _REGISTRY:
         raise ValueError(f"Quantity '{name}' is already registered")
-    quantity = Quantity(name=name, units=units, dims=dims, icon_fortran_name=icon_fortran_name)
+    quantity = Quantity(
+        name=name, units=units, dims=dims, icon_fortran_name=icon_fortran_name, cf_key=cf_key
+    )
     _REGISTRY[name] = quantity
     return quantity
 
@@ -91,37 +102,75 @@ _register_from_metadata(metrics_attrs.attrs)
 
 
 #: Prognostic quantities (also used in state dataclasses).
-AIR_DENSITY: Final[Quantity] = register("air_density", "kg m-3", (dims.CellDim, dims.KDim), "rho")
+AIR_DENSITY: Final[Quantity] = register(
+    "air_density", "kg m-3", (dims.CellDim, dims.KDim), "rho", cf_key="air_density"
+)
 UPWARD_AIR_VELOCITY: Final[Quantity] = register(
-    "upward_air_velocity", "m s-1", (dims.CellDim, dims.KHalfDim), "w"
+    "upward_air_velocity",
+    "m s-1",
+    (dims.CellDim, dims.KHalfDim),
+    "w",
+    cf_key="upward_air_velocity",
 )
 NORMAL_VELOCITY: Final[Quantity] = register(
-    "normal_velocity", "m s-1", (dims.EdgeDim, dims.KDim), "vn"
+    "normal_velocity",
+    "m s-1",
+    (dims.EdgeDim, dims.KDim),
+    "vn",
+    cf_key="normal_velocity",
 )
 DIMENSIONLESS_EXNER_FUNCTION: Final[Quantity] = register(
-    "dimensionless_exner_function", "1", (dims.CellDim, dims.KDim), "exner"
+    "dimensionless_exner_function",
+    "1",
+    (dims.CellDim, dims.KDim),
+    "exner",
+    cf_key="exner_function",
 )
 VIRTUAL_POTENTIAL_TEMPERATURE: Final[Quantity] = register(
-    "virtual_potential_temperature", "K", (dims.CellDim, dims.KDim), "theta_v"
+    "virtual_potential_temperature",
+    "K",
+    (dims.CellDim, dims.KDim),
+    "theta_v",
+    cf_key="virtual_potential_temperature",
 )
 
 #: Derived diagnostic quantities computed by ``update_derived_quantities``.
 AIR_TEMPERATURE: Final[Quantity] = register(
-    "air_temperature", "K", (dims.CellDim, dims.KDim), "temp"
+    "air_temperature",
+    "K",
+    (dims.CellDim, dims.KDim),
+    "temp",
+    cf_key="temperature",
 )
 AIR_VIRTUAL_TEMPERATURE: Final[Quantity] = register(
-    "air_virtual_temperature", "K", (dims.CellDim, dims.KDim), "tempv"
+    "air_virtual_temperature",
+    "K",
+    (dims.CellDim, dims.KDim),
+    "tempv",
+    cf_key="virtual_temperature",
 )
-AIR_PRESSURE: Final[Quantity] = register("air_pressure", "Pa", (dims.CellDim, dims.KDim), "pres")
+AIR_PRESSURE: Final[Quantity] = register(
+    "air_pressure", "Pa", (dims.CellDim, dims.KDim), "pres", cf_key="pressure"
+)
 AIR_PRESSURE_ON_INTERFACE_LEVELS: Final[Quantity] = register(
     "air_pressure_on_interface_levels", "Pa", (dims.CellDim, dims.KHalfDim), "pres_ifc"
 )
 AIR_PRESSURE_AT_GROUND_LEVEL: Final[Quantity] = register(
-    "air_pressure_at_ground_level", "Pa", (dims.CellDim,), "pres_sfc"
+    "air_pressure_at_ground_level",
+    "Pa",
+    (dims.CellDim,),
+    "pres_sfc",
+    cf_key="surface_pressure",
 )
-EASTWARD_WIND: Final[Quantity] = register("eastward_wind", "m s-1", (dims.CellDim, dims.KDim), "u")
+EASTWARD_WIND: Final[Quantity] = register(
+    "eastward_wind", "m s-1", (dims.CellDim, dims.KDim), "u", cf_key="eastward_wind"
+)
 NORTHWARD_WIND: Final[Quantity] = register(
-    "northward_wind", "m s-1", (dims.CellDim, dims.KDim), "v"
+    "northward_wind",
+    "m s-1",
+    (dims.CellDim, dims.KDim),
+    "v",
+    cf_key="northward_wind",
 )
 
 #: Tracer quantities.
