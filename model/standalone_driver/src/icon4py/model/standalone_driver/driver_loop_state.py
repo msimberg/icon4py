@@ -25,7 +25,7 @@ from icon4py.model.standalone_driver import config as driver_config, driver_stat
 
 
 if TYPE_CHECKING:
-    from icon4py.model.standalone_driver.derived_quantities import DerivedQuantities
+    from icon4py.model.common.components.derived_quantities import DerivedQuantities
 
 
 @dataclasses.dataclass(frozen=True)

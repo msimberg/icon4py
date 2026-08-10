@@ -27,6 +27,10 @@ from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.physics_drive
 )
 from icon4py.model.atmosphere.tracer_advection import tracer_advection
 from icon4py.model.common import field_type_aliases as fa, type_alias as ta
+from icon4py.model.common.components.derived_quantities import (
+    DerivedQuantities,
+    DerivedQuantitiesInput,
+)
 from icon4py.model.common.composition import Step, SwapPolicy, chain, foreach, named, nested, repeat
 from icon4py.model.common.grid import geometry_attributes as geom_attr
 from icon4py.model.common.interpolation import interpolation_attributes as intp_attr
@@ -34,10 +38,6 @@ from icon4py.model.common.metrics import metrics_attributes as metrics_attr
 from icon4py.model.common.states import tracer_states
 from icon4py.model.common.utils import data_allocation as data_alloc, device_utils
 from icon4py.model.standalone_driver import driver_constants, driver_io, driver_states, driver_utils
-from icon4py.model.standalone_driver.derived_quantities import (
-    DerivedQuantities,
-    DerivedQuantitiesInput,
-)
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 
 

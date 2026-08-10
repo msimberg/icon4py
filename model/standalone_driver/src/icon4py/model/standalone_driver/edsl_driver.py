@@ -8,9 +8,9 @@
 
 """eDSL driver: builds the time-integration composition and runs it once."""
 
+from icon4py.model.common.components.derived_quantities import DerivedQuantities
 from icon4py.model.common.composition import Step, chain, repeat, when
 from icon4py.model.standalone_driver import driver_utils
-from icon4py.model.standalone_driver.derived_quantities import DerivedQuantities
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 from icon4py.model.standalone_driver.steps import (
     adjust_ndyn_step,

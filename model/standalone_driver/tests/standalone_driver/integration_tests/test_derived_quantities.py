@@ -16,13 +16,13 @@ import numpy as np
 import pytest
 
 from icon4py.model.common import dimension as dims
-from icon4py.model.common.grid import base as base_grid
-from icon4py.model.common.states.data import QC, QG, QI, QR, QS, QV
-from icon4py.model.common.utils import data_allocation as data_alloc
-from icon4py.model.standalone_driver.derived_quantities import (
+from icon4py.model.common.components.derived_quantities import (
     DerivedQuantities,
     DerivedQuantitiesInput,
 )
+from icon4py.model.common.grid import base as base_grid
+from icon4py.model.common.states.data import QC, QG, QI, QR, QS, QV
+from icon4py.model.common.utils import data_allocation as data_alloc
 from icon4py.model.testing import definitions as test_defs, serialbox as sb, test_utils
 
 from ..fixtures import (

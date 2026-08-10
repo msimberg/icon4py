@@ -26,6 +26,7 @@ from icon4py.model.common import (
     prescribed_tendencies,
     topography,
 )
+from icon4py.model.common.components.derived_quantities import DerivedQuantities
 from icon4py.model.common.composition import show, to_graphviz
 from icon4py.model.common.decomposition import definitions as decomposition_defs
 from icon4py.model.common.grid import grid_manager as gm, vertical as v_grid
@@ -48,7 +49,6 @@ from icon4py.model.standalone_driver import (
     edsl_driver,
     plain_driver,
 )
-from icon4py.model.standalone_driver.derived_quantities import DerivedQuantities
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState, DriverServices
 
 
