@@ -23,12 +23,18 @@ from typing import Any
 import gt4py.next.typing as gtx_typing
 import numpy as np
 import pytest
+import xarray as xr
 
 from icon4py.model.common import model_backends
 from icon4py.model.common.decomposition import definitions as decomp_defs
 from icon4py.model.common.states import prognostic_state as prognostics, tracer_states
 from icon4py.model.common.utils import Pair, PredictorCorrectorPair, TimeStepPair
-from icon4py.model.standalone_driver import config as driver_config, driver_utils, standalone_driver
+from icon4py.model.standalone_driver import (
+    config as driver_config,
+    driver_io,
+    driver_utils,
+    standalone_driver,
+)
 from icon4py.model.testing import datatest_utils as dt_utils, definitions as test_defs, grid_utils
 
 from ..fixtures import backend, download_ser_data, process_props
@@ -358,6 +364,14 @@ def test_edsl_plain_and_legacy_golden_match_for_exclaim_ape_aes(
     assert driver_plain.model_time_variables.ndyn_substeps_var == int(
         clock_golden["ndyn_substeps_var"]
     )
+
+    # The labels-based output set must be reflected in the written NetCDF file.
+    output_file = config_edsl.driver.output_path / "icon4py_output_0001.nc"
+    if output_file.exists():
+        with xr.open_dataset(output_file) as ds:
+            expected_output = set(driver_io.output_variables())
+            missing = expected_output - set(ds.variables)
+            assert not missing, f"Output file missing variables: {missing}"
 
 
 @pytest.mark.datatest
