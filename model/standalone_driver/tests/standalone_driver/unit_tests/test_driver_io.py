@@ -349,6 +349,7 @@ def test_io_monitor_close_is_called_when_store_raises(
         driver = object.__new__(Icon4pyDriver)
         driver.io_monitor = io_monitor  # type: ignore[assignment]
         driver.model_time_variables = _FakeClock()  # type: ignore[assignment]
+        driver.granules = None  # type: ignore[assignment]
         driver._build_carry = lambda ds: fake_carry  # type: ignore[method-assign]
 
         monkeypatch.setattr(edsl_driver, "io_snapshot_step", _RaisingStep())

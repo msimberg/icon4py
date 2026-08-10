@@ -167,7 +167,7 @@ class Icon4pyDriver:
         carry = self._build_carry(ds)
 
         try:  # fail gracefully and close `io_monitor` if something goes wrong
-            edsl_driver.run_time_integration_edsl(carry)
+            edsl_driver.build_time_integration_composition(granules=self.granules)(carry)
         finally:
             if self.io_monitor is not None:
                 self.io_monitor.close()
