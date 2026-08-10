@@ -368,7 +368,6 @@ def _assemble_run(
         allocator=allocator,
         backend=icon4py_driver.backend,
         exchange=icon4py_driver.exchange,
-        static_fields=icon4py_driver.static_field_factories,
         registry=icon4py_driver.granules.registry,
         prognostic_state_now=prognostic_state_now,
         tracer_state_now=tracer_state_now,

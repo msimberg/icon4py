@@ -31,7 +31,6 @@ from icon4py.model.common.states import (
     field_registry,
     nonhydro_states,
     prognostic_state as prognostics,
-    static_fields,
     tracer_states,
 )
 from icon4py.model.common.utils import data_allocation as data_alloc
@@ -226,7 +225,6 @@ def assemble_driver_states(
     allocator: gtx_typing.Allocator,
     backend: gtx_typing.Backend | None,
     exchange: decomposition_defs.ExchangeRuntime,
-    static_fields: static_fields.StaticFieldFactories,
     registry: field_registry.FieldRegistry,
     prognostic_state_now: prognostics.PrognosticState,
     tracer_state_now: tracer_states.TracerState,
@@ -252,8 +250,8 @@ def assemble_driver_states(
     )
     end_cell_end = grid.end_index(cell_domain(h_grid.Zone.END))
 
-    rbf_vec_coeff_c1 = static_fields.interpolation.get(interpolation_attributes.RBF_VEC_COEFF_C1)
-    rbf_vec_coeff_c2 = static_fields.interpolation.get(interpolation_attributes.RBF_VEC_COEFF_C2)
+    rbf_vec_coeff_c1 = registry.buffer(interpolation_attributes.RBF_VEC_COEFF_C1)
+    rbf_vec_coeff_c2 = registry.buffer(interpolation_attributes.RBF_VEC_COEFF_C2)
 
     edge_2_cell_vector_rbf_interpolation.edge_2_cell_vector_rbf_interpolation.with_backend(backend)(
         p_e_in=prognostic_states.current.vn,
