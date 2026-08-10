@@ -174,6 +174,7 @@ class DerivedQuantitiesOutput:
         dims=q.AIR_PRESSURE_AT_GROUND_LEVEL.dims,
         intent=spec.Intent.WRITE,
         lifetime=spec.Lifetime.PERSISTENT,
+        labels=["diagnostic", "output"],
     )
     u: fa.CellKField[ta.wpfloat] = spec.spec(
         quantity=q.EASTWARD_WIND.name,
