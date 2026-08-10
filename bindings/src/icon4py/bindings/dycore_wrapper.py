@@ -424,20 +424,28 @@ def solve_nh_run(  # noqa: PLR0917 [too-many-positional-arguments]
     # adjust for Fortran indexes
     idyn_timestep = idyn_timestep - 1
 
-    granule.solve_nh.time_step(
+    step_info = dycore_states.StepInfo(
+        substep_index=idyn_timestep,
+        at_first_substep=idyn_timestep == 0,
+        at_last_substep=idyn_timestep == (ndyn_substeps_var - 1),
+        at_initial_timestep=at_initial_timestep,
+    )
+    dycore_control = dycore_states.DycoreControl(
+        lprep_adv=lprep_adv,
+        is_iau_active=is_iau_active,
+        iau_wgt_dyn=iau_wgt_dyn,
+    )
+    input_state = solve_nonhydro.SolveNonHydroInput(
         diagnostic_state_nh=diagnostic_state_nh,
         prognostic_states=prognostic_states,
         prep_adv=prep_adv,
         second_order_divdamp_factor=divdamp_fac_o2,
         dtime=dtime,
         ndyn_substeps_var=ndyn_substeps_var,
-        at_initial_timestep=at_initial_timestep,
-        lprep_adv=lprep_adv,
-        at_first_substep=idyn_timestep == 0,
-        at_last_substep=idyn_timestep == (ndyn_substeps_var - 1),
-        is_iau_active=is_iau_active,
-        iau_wgt_dyn=iau_wgt_dyn,
+        step_info=step_info,
+        dycore_control=dycore_control,
     )
+    granule.solve_nh.run(input_state)
 
     # TODO(havogt): create separate bindings for writing the timers
     if gtx_config.COLLECT_METRICS_LEVEL > 0:

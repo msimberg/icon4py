@@ -538,7 +538,17 @@ def test_dycore_wrapper_granule_inputs(  # noqa: PLR0917 [too-many-positional-ar
     expected_lprep_adv = sp.get_metadata("prep_adv").get("prep_adv")
     expected_at_first_substep = substep_init == 1
     expected_at_last_substep = substep_init == ndyn_substeps
-
+    expected_step_info = dycore_states.StepInfo(
+        substep_index=substep_init - 1,
+        at_first_substep=expected_at_first_substep,
+        at_last_substep=expected_at_last_substep,
+        at_initial_timestep=at_initial_timestep,
+    )
+    expected_dycore_control = dycore_states.DycoreControl(
+        lprep_adv=expected_lprep_adv,
+        is_iau_active=False,
+        iau_wgt_dyn=0.0,
+    )
     ffi = cffi.FFI()
 
     # --- Mock and Test SolveNonhydro.init ---
@@ -673,9 +683,7 @@ def test_dycore_wrapper_granule_inputs(  # noqa: PLR0917 [too-many-positional-ar
         assert result, f"Owner Mask comparison failed: {error_message}"
 
     # --- Mock and Test SolveNonhydro.run ---
-    with mock.patch(
-        "icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro.time_step"
-    ) as mock_init:
+    with mock.patch("icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro.run") as mock_run:
         dycore_wrapper.solve_nh_run(
             ffi=ffi,
             perf_counters=None,
@@ -712,8 +720,8 @@ def test_dycore_wrapper_granule_inputs(  # noqa: PLR0917 [too-many-positional-ar
             exner_incr=exner_incr,
             mass_flx_me=mass_flx_me,
             mass_flx_ic=mass_flx_ic,
-            vol_flx_ic=vol_flx_ic,
             vn_traj=vn_traj,
+            vol_flx_ic=vol_flx_ic,
             dtime=dtime,
             max_vcfl_size1_array=max_vcfl_size1_array,
             lprep_adv=lprep_adv,
@@ -725,46 +733,40 @@ def test_dycore_wrapper_granule_inputs(  # noqa: PLR0917 [too-many-positional-ar
             iau_wgt_dyn=0.0,
         )
 
-        # Check input arguments to SolveNonhydro.time_step
-        _, captured_kwargs = mock_init.call_args
+        # Check input arguments to SolveNonhydro.run
+        captured_args, _ = mock_run.call_args
+        assert len(captured_args) == 1
+        state = captured_args[0]
 
         result, error_message = utils.compare_objects(
-            captured_kwargs["diagnostic_state_nh"], expected_diagnostic_state_nh
+            state.diagnostic_state_nh, expected_diagnostic_state_nh
         )
         assert result, f"Diagnostic State comparison failed: {error_message}"
 
         result, error_message = utils.compare_objects(
-            captured_kwargs["prognostic_states"], expected_prognostic_states
+            state.prognostic_states, expected_prognostic_states
         )
         assert result, f"Prognostic State comparison failed: {error_message}"
 
-        result, error_message = utils.compare_objects(
-            captured_kwargs["prep_adv"], expected_prep_adv
-        )
+        result, error_message = utils.compare_objects(state.prep_adv, expected_prep_adv)
         assert result, f"Prep Advection comparison failed: {error_message}"
 
         result, error_message = utils.compare_objects(
-            captured_kwargs["second_order_divdamp_factor"], expected_second_order_divdamp_factor
+            state.second_order_divdamp_factor, expected_second_order_divdamp_factor
         )
         assert result, f"Divdamp Factor comparison failed: {error_message}"
 
-        result, error_message = utils.compare_objects(captured_kwargs["dtime"], expected_dtime)
+        result, error_message = utils.compare_objects(state.dtime, expected_dtime)
         assert result, f"dtime comparison failed: {error_message}"
 
-        result, error_message = utils.compare_objects(
-            captured_kwargs["lprep_adv"], expected_lprep_adv
-        )
-        assert result, f"Prep Advection flag comparison failed: {error_message}"
+        result, error_message = utils.compare_objects(state.ndyn_substeps_var, ndyn_substeps)
+        assert result, f"ndyn_substeps_var comparison failed: {error_message}"
 
-        result, error_message = utils.compare_objects(
-            captured_kwargs["at_first_substep"], expected_at_first_substep
-        )
-        assert result, f"First Substep comparison failed: {error_message}"
+        result, error_message = utils.compare_objects(state.step_info, expected_step_info)
+        assert result, f"StepInfo comparison failed: {error_message}"
 
-        result, error_message = utils.compare_objects(
-            captured_kwargs["at_last_substep"], expected_at_last_substep
-        )
-        assert result, f"Last Substep comparison failed: {error_message}"
+        result, error_message = utils.compare_objects(state.dycore_control, expected_dycore_control)
+        assert result, f"DycoreControl comparison failed: {error_message}"
 
 
 @pytest.mark.datatest

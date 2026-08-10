@@ -244,10 +244,13 @@ def test_diffusion_wrapper_granule_inputs(  # noqa: PLR0917 [too-many-positional
         )
 
         # Check input arguments to Diffusion.run
-        _, captured_kwargs = mock_run.call_args
-        assert utils.compare_objects(captured_kwargs["diagnostic_state"], expected_diagnostic_state)
-        assert utils.compare_objects(captured_kwargs["prognostic_state"], expected_prognostic_state)
-        assert captured_kwargs["dtime"] == expected_dtime
+        captured_args, _ = mock_run.call_args
+        assert len(captured_args) == 1
+        state = captured_args[0]
+        assert utils.compare_objects(state.diagnostic_state, expected_diagnostic_state)
+        assert utils.compare_objects(state.prognostic_state, expected_prognostic_state)
+        assert state.dtime == expected_dtime
+        assert state.initial_run is False
 
 
 @pytest.mark.datatest

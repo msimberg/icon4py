@@ -33,6 +33,7 @@ from icon4py.bindings import (
 from icon4py.model.atmosphere.diffusion.diffusion import (
     Diffusion,
     DiffusionConfig,
+    DiffusionInput,
     DiffusionParams,
     DiffusionType,
     ForcingType,
@@ -303,9 +304,10 @@ def diffusion_run(  # noqa: PLR0917 [too-many-positional-arguments]
         dwdy=dwdy,
     )
 
-    granule.diffusion.run(
+    input_state = DiffusionInput(
         diagnostic_state=diagnostic_state,
         prognostic_state=prognostic_state,
         dtime=dtime,
         initial_run=linit,
     )
+    granule.diffusion.run(input_state)
