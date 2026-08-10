@@ -31,7 +31,17 @@ from icon4py.model.common.components.derived_quantities import (
     DerivedQuantities,
     DerivedQuantitiesInput,
 )
-from icon4py.model.common.composition import Step, SwapPolicy, chain, foreach, named, nested, repeat
+from icon4py.model.common.composition import (
+    Step,
+    chain,
+    foreach,
+    named,
+    nested,
+    repeat,
+    swap,
+    when,
+    with_index,
+)
 from icon4py.model.common.grid import geometry_attributes as geom_attr
 from icon4py.model.common.interpolation import interpolation_attributes as intp_attr
 from icon4py.model.common.metrics import metrics_attributes as metrics_attr
@@ -302,15 +312,21 @@ def build_dycore_substeps_step(
     """The dynamics substep loop: compute stats, update time levels, solve NH."""
     return repeat(
         chain(
-            compute_statistics_step,
-            update_time_levels_step,
-            build_solve_nh_step(component),
+            with_index(
+                chain(
+                    compute_statistics_step,
+                    update_time_levels_step,
+                    build_solve_nh_step(component),
+                ),
+                set_index=DriverLoopState.begin_substep,
+            ),
+            when(
+                lambda c: c.substep_index != c.substep_total - 1,
+                then=swap(lambda c: c.states.prognostics),
+            ),
         ),
         times=lambda c: c.clock.ndyn_substeps_var,
         post=compute_total_mass_and_energy_step,
-        swap=SwapPolicy.EXCEPT_LAST,
-        swap_target=lambda c: c.states.prognostics,
-        set_loop_context=DriverLoopState.begin_substep,
         name="dycore_substeps",
     )
 

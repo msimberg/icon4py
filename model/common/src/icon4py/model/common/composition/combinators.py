@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterable
 from typing import Any, TypeVar
 
 from icon4py.model.common.components.components import Component
-from icon4py.model.common.composition.step import Step, SwapPolicy
+from icon4py.model.common.composition.step import Step
 
 
 C = TypeVar("C")
@@ -66,8 +66,8 @@ def named[C](
     ``component`` is optional metadata used by introspection to derive the
     step's declared inputs and outputs.
 
-    ``pass_item`` is used when the step runs inside ``foreach``; it forwards
-    the iteration item to ``fn``.
+    ``pass_item`` is used when the step runs inside ``foreach`` or ``repeat``;
+    it forwards the iteration item to ``fn``.
     """
     return _NamedStep(name, fn, component=component, pass_item=pass_item)
 
@@ -78,9 +78,8 @@ class _Chain(Step[C]):
         self._steps = steps
 
     def __call__(self, carry: C, item: Any = None) -> None:
-        del item
         for step in self._steps:
-            step(carry)
+            step(carry, item)
 
 
 def chain[C](*steps: Step[C], name: str | None = None) -> Step[C]:
@@ -96,9 +95,6 @@ class _Repeat(Step[C]):
         times: int | Callable[[C], int],
         pre: Step[C] | None,
         post: Step[C] | None,
-        swap: SwapPolicy,
-        swap_target: Callable[[C], Any],
-        set_loop_context: Callable[[C, int, int], None] | None,
         name: str | None,
     ) -> None:
         self.name = _default_name("repeat", name)
@@ -106,12 +102,6 @@ class _Repeat(Step[C]):
         self._times = times
         self._pre = pre
         self._post = post
-        self._swap = swap
-        self._swap_target = swap_target
-        self._set_loop_context = set_loop_context
-
-        if swap is not SwapPolicy.NEVER and swap_target is None:
-            raise ValueError("swap_target is required when swap policy is not NEVER")
 
     def __call__(self, carry: C, item: Any = None) -> None:
         del item
@@ -119,12 +109,7 @@ class _Repeat(Step[C]):
         if self._pre is not None:
             self._pre(carry)
         for index in range(total):
-            if self._set_loop_context is not None:
-                self._set_loop_context(carry, index, total)
-            self._step(carry)
-            if self._swap is not SwapPolicy.NEVER:
-                if self._swap is SwapPolicy.ALWAYS or index != total - 1:
-                    self._swap_target(carry).swap()
+            self._step(carry, (index, total))
         if self._post is not None:
             self._post(carry)
 
@@ -135,34 +120,15 @@ def repeat[C](
     times: int | Callable[[C], int],
     pre: Step[C] | None = None,
     post: Step[C] | None = None,
-    swap: SwapPolicy = SwapPolicy.NEVER,
-    swap_target: Callable[[C], Any] | None = None,
-    set_loop_context: Callable[[C, int, int], None] | None = None,
     name: str | None = None,
 ) -> Step[C]:
-    """Run ``step`` ``times`` in a row, with optional pre/post and swap policy.
+    """Run ``step`` ``times`` in a row, with optional pre/post hooks.
 
     ``times`` is re-evaluated each time the returned step is invoked when it is
-    a callable. ``set_loop_context`` is called before each iteration with the
-    current index and total count. ``swap_target`` must expose a ``.swap()``
-    method when a swap policy other than ``NEVER`` is used.
+    a callable. The child step receives the current ``(index, total)`` as its
+    ``item`` on each iteration.
     """
-    if swap is not SwapPolicy.NEVER:
-        if swap_target is None:
-            raise ValueError("swap_target is required when swap policy is not NEVER")
-        target: Callable[[C], Any] = swap_target
-    else:
-        target = lambda c: None  # noqa: E731
-    return _Repeat(
-        step,
-        times=times,
-        pre=pre,
-        post=post,
-        swap=swap,
-        swap_target=target,
-        set_loop_context=set_loop_context,
-        name=name,
-    )
+    return _Repeat(step, times=times, pre=pre, post=post, name=name)
 
 
 class _When(Step[C]):
@@ -180,11 +146,10 @@ class _When(Step[C]):
         self._else = else_
 
     def __call__(self, carry: C, item: Any = None) -> None:
-        del item
         if self._predicate(carry):
-            self._then(carry)
+            self._then(carry, item)
         elif self._else is not None:
-            self._else(carry)
+            self._else(carry, item)
 
 
 def when[C](
@@ -196,6 +161,55 @@ def when[C](
 ) -> Step[C]:
     """Run ``then`` when ``predicate(carry)`` is true, otherwise ``else_`` if given."""
     return _When(predicate, then=then, else_=else_, name=name)
+
+
+class _WithIndex(Step[C]):
+    """Set the loop index from an incoming ``(index, total)`` item, then run a body."""
+
+    def __init__(
+        self,
+        body: Step[C],
+        *,
+        set_index: Callable[[C, int, int], None],
+        name: str | None = None,
+    ) -> None:
+        self.name = _default_name("with_index", name)
+        self._body = body
+        self._set_index = set_index
+
+    def __call__(self, carry: C, item: Any = None) -> None:
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise TypeError(f"with_index expected a 2-tuple (index, total), got {item!r}")
+        index, total = item
+        self._set_index(carry, index, total)
+        self._body(carry)
+
+
+def with_index[C](
+    body: Step[C],
+    *,
+    set_index: Callable[[C, int, int], None],
+    name: str | None = None,
+) -> Step[C]:
+    """Run ``body`` after writing the current ``(index, total)`` into the carry."""
+    return _WithIndex(body, set_index=set_index, name=name)
+
+
+class _Swap(Step[C]):
+    """Swap a double-buffered target selected from the carry."""
+
+    def __init__(self, swapper: Callable[[C], Any], *, name: str | None = None) -> None:
+        self.name = _default_name("swap", name)
+        self._swapper = swapper
+
+    def __call__(self, carry: C, item: Any = None) -> None:
+        del item
+        self._swapper(carry).swap()
+
+
+def swap[C](swapper: Callable[[C], Any], *, name: str | None = None) -> Step[C]:
+    """Call ``swapper(carry).swap()`` as a standalone step."""
+    return _Swap(swapper, name=name)
 
 
 class _Foreach(Step[C]):
@@ -251,12 +265,11 @@ class _Sample(Step[C]):
             raise ValueError("sample 'every' must be positive")
 
     def __call__(self, carry: C, item: Any = None) -> None:
-        del item
         cache = self._cache(carry)
         clock_value = self._clock(carry)
         firing = clock_value % self._every == datetime.timedelta(0)
         if firing or self._key not in cache:
-            self._step(carry)
+            self._step(carry, item)
 
 
 def sample[C](
@@ -293,8 +306,7 @@ class _Nested(Step[OuterC]):
         self._enter = enter
 
     def __call__(self, carry: OuterC, item: Any = None) -> None:
-        del item
-        self._step(self._enter(carry))
+        self._step(self._enter(carry), item)
 
 
 def nested[OuterC, InnerC](

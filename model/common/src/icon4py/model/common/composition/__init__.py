@@ -15,15 +15,16 @@ from icon4py.model.common.composition.combinators import (
     nested,
     repeat,
     sample,
+    swap,
     when,
+    with_index,
 )
 from icon4py.model.common.composition.introspection import show, to_graphviz
-from icon4py.model.common.composition.step import Step, SwapPolicy
+from icon4py.model.common.composition.step import Step
 
 
 __all__ = [
     "Step",
-    "SwapPolicy",
     "chain",
     "foreach",
     "named",
@@ -31,6 +32,8 @@ __all__ = [
     "repeat",
     "sample",
     "show",
+    "swap",
     "to_graphviz",
     "when",
+    "with_index",
 ]

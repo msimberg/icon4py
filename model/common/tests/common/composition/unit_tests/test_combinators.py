@@ -16,7 +16,17 @@ from typing import Any
 
 import pytest
 
-from icon4py.model.common.composition import Step, SwapPolicy, chain, foreach, repeat, sample, when
+from icon4py.model.common.composition import (
+    Step,
+    chain,
+    foreach,
+    named,
+    repeat,
+    sample,
+    swap,
+    when,
+    with_index,
+)
 
 
 @dataclasses.dataclass
@@ -26,6 +36,24 @@ class _Carry:
     items: list[Any] = dataclasses.field(default_factory=list)
     cache: dict[str, Any] = dataclasses.field(default_factory=dict)
     swap_calls: int = 0
+    indices: list[int] = dataclasses.field(default_factory=list)
+    totals: list[int] = dataclasses.field(default_factory=list)
+
+
+class _SwapTarget:
+    def __init__(self, carry: Any) -> None:
+        self._carry = carry
+
+    def swap(self) -> None:
+        self._carry.swap_calls += 1
+
+
+def _swap_target(carry: _Carry) -> _SwapTarget:
+    return _SwapTarget(carry)
+
+
+def _append(token: str) -> Step[_Carry]:
+    return _AppendStep(token)
 
 
 class _AppendStep:
@@ -34,19 +62,8 @@ class _AppendStep:
         self._token = token
 
     def __call__(self, carry: _Carry, item: Any = None) -> None:
+        del item
         carry.log.append(self._token)
-
-
-class _SwapTarget:
-    def __init__(self, carry: _Carry) -> None:
-        self._carry = carry
-
-    def swap(self) -> None:
-        self._carry.swap_calls += 1
-
-
-def _append(token: str) -> Step[_Carry]:
-    return _AppendStep(token)
 
 
 def test_chain_runs_steps_in_order() -> None:
@@ -87,46 +104,79 @@ def test_repeat_pre_runs_once_before_loop_and_post_after() -> None:
     assert carry.log == ["pre", "body", "body", "post"]
 
 
-def test_repeat_set_loop_context_receives_index_and_total() -> None:
+def test_repeat_passes_index_and_total_to_child() -> None:
     recorded: list[tuple[int, int]] = []
 
-    def _ctx(carry: _Carry, index: int, total: int) -> None:
-        recorded.append((index, total))
+    def _record(carry: _Carry, item: tuple[int, int]) -> None:
+        del carry
+        recorded.append(item)
 
-    repeat(_append("x"), times=3, set_loop_context=_ctx)(_Carry())
-    assert recorded == [(0, 3), (1, 3), (2, 3)]
+    record_step: Step[_Carry] = named("record", _record, pass_item=True)
+    repeat(record_step, times=3)(_Carry())
 
 
-def test_repeat_swap_never_does_not_swap() -> None:
+def test_swap_calls_swap_on_target() -> None:
     carry = _Carry()
-    repeat(
-        _append("x"),
-        times=2,
-        swap=SwapPolicy.NEVER,
-        swap_target=_SwapTarget,
-    )(carry)
-    assert carry.swap_calls == 0
+    swap(_swap_target)(carry)
+    assert carry.swap_calls == 1
 
 
-def test_repeat_swap_always_swaps_each_iteration() -> None:
+def test_with_index_sets_index_and_runs_body() -> None:
     carry = _Carry()
-    repeat(
-        _append("x"),
+
+    def _set_index(carry: _Carry, index: int, total: int) -> None:
+        carry.indices.append(index)
+        carry.totals.append(total)
+
+    def _body(carry: _Carry) -> None:
+        carry.log.append("body")
+
+    with_index(named("body", _body), set_index=_set_index)(carry, (2, 5))
+    assert carry.indices == [2]
+    assert carry.totals == [5]
+    assert carry.log == ["body"]
+
+
+def test_with_index_requires_a_two_tuple_item() -> None:
+    carry = _Carry()
+
+    def _set_index(carry: _Carry, index: int, total: int) -> None:
+        del carry, index, total
+
+    step = with_index(named("body", lambda c: None), set_index=_set_index)
+    with pytest.raises(TypeError, match="2-tuple"):
+        step(carry)
+
+
+def test_repeat_chain_with_index_and_conditional_swap_on_synthetic_carry() -> None:
+    """A non-dycore loop proves ``repeat`` is generic: it forwards the loop index
+    through ``chain`` to ``with_index``, and the conditional swap step is an
+    ordinary child of the same chain.
+    """
+
+    def _set_index(carry: _Carry, index: int, total: int) -> None:
+        carry.indices.append(index)
+        carry.totals.append(total)
+
+    def _body(carry: _Carry) -> None:
+        carry.log.append("body")
+
+    step = repeat(
+        chain(
+            with_index(named("body", _body), set_index=_set_index),
+            when(
+                lambda c: c.indices[-1] != c.totals[-1] - 1,
+                then=swap(_swap_target),
+            ),
+        ),
         times=3,
-        swap=SwapPolicy.ALWAYS,
-        swap_target=_SwapTarget,
-    )(carry)
-    assert carry.swap_calls == 3
+    )
 
-
-def test_repeat_swap_except_last_skips_final_swap() -> None:
     carry = _Carry()
-    repeat(
-        _append("x"),
-        times=3,
-        swap=SwapPolicy.EXCEPT_LAST,
-        swap_target=_SwapTarget,
-    )(carry)
+    step(carry)
+    assert carry.indices == [0, 1, 2]
+    assert carry.totals == [3, 3, 3]
+    assert carry.log == ["body", "body", "body"]
     assert carry.swap_calls == 2
 
 
@@ -174,6 +224,7 @@ class _ComputeStep(Step[_Carry]):
         self.name: str = "compute"
 
     def __call__(self, c: _Carry, item: Any = None) -> None:
+        del item
         c.cache["p"] = c.cache.get("p", 0) + 1
 
 
@@ -182,6 +233,7 @@ class _StaleStep(Step[_Carry]):
         self.name: str = "compute"
 
     def __call__(self, c: _Carry, item: Any = None) -> None:
+        del item
         c.cache["p"] = "STALE"
 
 
@@ -190,6 +242,7 @@ class _FreshStep(Step[_Carry]):
         self.name: str = "compute"
 
     def __call__(self, c: _Carry, item: Any = None) -> None:
+        del item
         c.cache["p"] = "FRESH"
 
 
@@ -246,11 +299,6 @@ def test_sample_every_positive_is_required_for_modulo() -> None:
             key="p",
             cache=lambda c: c.cache,
         )
-
-
-def test_repeat_swap_without_target_raises_at_construction() -> None:
-    with pytest.raises(ValueError, match="swap_target"):
-        repeat(_append("x"), times=2, swap=SwapPolicy.ALWAYS)
 
 
 def test_sample_every_rejects_non_timedelta() -> None:

@@ -9,7 +9,7 @@
 """eDSL driver: builds the time-integration composition and runs it once."""
 
 from icon4py.model.common.components.derived_quantities import DerivedQuantities
-from icon4py.model.common.composition import Step, chain, repeat, when
+from icon4py.model.common.composition import Step, chain, repeat, when, with_index
 from icon4py.model.standalone_driver import driver_utils
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 from icon4py.model.standalone_driver.steps import (
@@ -104,9 +104,8 @@ def build_time_integration_composition(
         ),
         build_diffuse_before_time_loop_step(granules.diffusion if granules is not None else None),
         repeat(
-            outer_step,
+            with_index(outer_step, set_index=DriverLoopState.begin_time_step),
             times=lambda c: c.clock.n_time_steps,
-            set_loop_context=DriverLoopState.begin_time_step,
             name="time_steps",
         ),
         compute_mean_at_final_step,

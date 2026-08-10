@@ -26,6 +26,7 @@ from icon4py.model.common.composition.combinators import (
     _Repeat,
     _Sample,
     _When,
+    _WithIndex,
 )
 from icon4py.model.common.composition.step import Step
 from icon4py.model.common.states.spec import get_field_spec
@@ -34,7 +35,7 @@ from icon4py.model.common.states.spec import get_field_spec
 def _is_combinator(step: Step[Any]) -> bool:
     return isinstance(
         step,
-        _Chain | _Repeat | _When | _Foreach | _Sample | _Nested,
+        _Chain | _Repeat | _When | _Foreach | _Sample | _Nested | _WithIndex,
     )
 
 
@@ -61,6 +62,8 @@ def _children(step: Step[Any]) -> Iterable[Step[Any]]:
         children.extend(s for s in step._steps if isinstance(s, _NamedStep))
     elif isinstance(step, _Sample | _Nested):
         children.append(step._step)
+    elif isinstance(step, _WithIndex):
+        children.append(step._body)
     return children
 
 
