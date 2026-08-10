@@ -251,3 +251,27 @@ def test_sample_every_positive_is_required_for_modulo() -> None:
 def test_repeat_swap_without_target_raises_at_construction() -> None:
     with pytest.raises(ValueError, match="swap_target"):
         repeat(_append("x"), times=2, swap=SwapPolicy.ALWAYS)
+
+
+def test_sample_every_rejects_non_timedelta() -> None:
+    """An integer ``every`` is a type error, not a silently accepted value."""
+    with pytest.raises(TypeError, match=r"every.*timedelta"):
+        sample(
+            _append("x"),
+            every=300,  # type: ignore[arg-type]
+            clock=lambda c: datetime.timedelta(seconds=0),
+            key="p",
+            cache=lambda c: c.cache,
+        )
+
+
+def test_sample_every_rejects_non_positive_timedelta() -> None:
+    """A non-positive ``every`` raises ``ValueError`` so modulo is well-defined."""
+    with pytest.raises(ValueError, match=r"every.*positive"):
+        sample(
+            _append("x"),
+            every=datetime.timedelta(seconds=-1),
+            clock=lambda c: datetime.timedelta(seconds=0),
+            key="p",
+            cache=lambda c: c.cache,
+        )

@@ -245,6 +245,8 @@ class _Sample(Step[C]):
         self._clock = clock
         self._key = key
         self._cache = cache
+        if not isinstance(every, datetime.timedelta):
+            raise TypeError("sample 'every' must be a datetime.timedelta")
         if every <= datetime.timedelta(0):
             raise ValueError("sample 'every' must be positive")
 
