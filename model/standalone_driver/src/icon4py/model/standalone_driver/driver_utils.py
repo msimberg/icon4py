@@ -564,7 +564,7 @@ def display_icon4py_logo_in_log_file() -> None:
     log.info(icon4py_signature_str)
 
 
-def display_driver_setup_in_log_file(
+def log_driver_setup(
     config: driver_config.DriverConfig,
     model_time_variables: driver_states.ModelTimeVariables,
     vertical_params: v_grid.VerticalGrid,

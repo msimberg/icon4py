@@ -90,7 +90,7 @@ class Icon4pyDriver:
         self.global_reductions = global_reductions
         self.tendencies = tendencies
 
-        driver_utils.display_driver_setup_in_log_file(
+        driver_utils.log_driver_setup(
             config=self.config.driver,
             model_time_variables=self.model_time_variables,
             vertical_params=self.vertical_grid,
