@@ -177,7 +177,6 @@ files = [
   '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/validation.py',
   '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/field_registry.py',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/states',
-  '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/math',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/interpolation',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/io/unit_tests/test_io.py',
   '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/config',

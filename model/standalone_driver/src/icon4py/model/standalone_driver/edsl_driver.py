@@ -8,29 +8,38 @@
 
 """eDSL driver: builds the time-integration composition and runs it once."""
 
-from icon4py.model.common.composition import chain, repeat, when
+from icon4py.model.common.composition import Step, chain, repeat, when
+from icon4py.model.standalone_driver import driver_utils
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 from icon4py.model.standalone_driver.steps import (
     adjust_ndyn_step,
     advance_clock_step,
-    advect_tracers_step,
+    build_advect_tracers_step,
+    build_diffuse_before_time_loop_step,
+    build_diffusion_step,
+    build_dycore_substeps_step,
+    build_physics_composition_step,
     compute_airmass_new_step,
     compute_airmass_now_step,
     compute_mean_at_final_step,
-    diffuse_before_time_loop_step,
-    diffusion_step,
-    dycore_substeps_step,
     end_of_step_step,
     finalize_step,
     io_snapshot_step,
-    physics_step,
     swap_step,
     sync_step,
 )
 
 
-def run_time_integration_edsl(carry: DriverLoopState) -> None:
-    """Run the standalone driver time loop as a composition of steps."""
+def build_time_integration_composition(
+    *,
+    granules: driver_utils.Granules | None = None,
+) -> Step[DriverLoopState]:
+    """Build the full time-integration composition.
+
+    ``granules`` supplies components for introspection metadata. When ``None``,
+    the leaf steps still call ``component.run(state)`` from the carry at runtime
+    but expose no component metadata.
+    """
     outer_step = chain(
         advance_clock_step,
         when(
@@ -39,7 +48,9 @@ def run_time_integration_edsl(carry: DriverLoopState) -> None:
         ),
         when(
             lambda c: c.config.nonhydrostatic is not None,
-            then=dycore_substeps_step(),
+            then=build_dycore_substeps_step(
+                granules.solve_nonhydro if granules is not None else None
+            ),
         ),
         when(
             lambda c: c.states.tracer_advection_diagnostic is not None,
@@ -50,15 +61,17 @@ def run_time_integration_edsl(carry: DriverLoopState) -> None:
                 c.granules.diffusion is not None
                 and c.granules.diffusion.config.apply_to_horizontal_wind
             ),
-            then=diffusion_step,
+            then=build_diffusion_step(granules.diffusion if granules is not None else None),
         ),
         when(
             lambda c: c.granules.tracer_advection is not None,
-            then=advect_tracers_step(),
+            then=build_advect_tracers_step(
+                granules.tracer_advection if granules is not None else None
+            ),
         ),
         when(
             lambda c: c.granules.physics is not None,
-            then=physics_step,
+            then=build_physics_composition_step(granules.physics if granules is not None else None),
         ),
         swap_step,
         sync_step,
@@ -74,12 +87,12 @@ def run_time_integration_edsl(carry: DriverLoopState) -> None:
         name="outer_step",
     )
 
-    run = chain(
+    return chain(
         when(
             lambda c: c.services.io_monitor is not None,
             then=io_snapshot_step,
         ),
-        diffuse_before_time_loop_step,
+        build_diffuse_before_time_loop_step(granules.diffusion if granules is not None else None),
         repeat(
             outer_step,
             times=lambda c: c.clock.n_time_steps,
@@ -91,4 +104,7 @@ def run_time_integration_edsl(carry: DriverLoopState) -> None:
         name="run_time_integration_edsl",
     )
 
-    run(carry)
+
+def run_time_integration_edsl(carry: DriverLoopState) -> None:
+    """Run the standalone driver time loop as a composition of steps."""
+    build_time_integration_composition(granules=None)(carry)

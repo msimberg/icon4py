@@ -25,6 +25,7 @@ from icon4py.model.common import (
     prescribed_tendencies,
     topography,
 )
+from icon4py.model.common.composition import show, to_graphviz
 from icon4py.model.common.decomposition import definitions as decomposition_defs
 from icon4py.model.common.grid import grid_manager as gm, vertical as v_grid
 from icon4py.model.common.grid.icon import IconGrid
@@ -170,6 +171,16 @@ class Icon4pyDriver:
         finally:
             if self.io_monitor is not None:
                 self.io_monitor.close()
+
+    def show(self) -> str:
+        """Return a text tree of the time-integration composition."""
+        composition = edsl_driver.build_time_integration_composition(granules=self.granules)
+        return show(composition)
+
+    def to_graphviz(self) -> str:
+        """Return a graphviz dot string of the composition tree and dataflow graph."""
+        composition = edsl_driver.build_time_integration_composition(granules=self.granules)
+        return to_graphviz(composition)
 
 
 def initialize_driver(

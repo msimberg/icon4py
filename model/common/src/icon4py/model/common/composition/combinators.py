@@ -14,6 +14,7 @@ import datetime
 from collections.abc import Callable, Iterable
 from typing import Any, TypeVar
 
+from icon4py.model.common.components.components import Component
 from icon4py.model.common.composition.step import Step, SwapPolicy
 
 
@@ -29,18 +30,35 @@ def _default_name(stem: str, name: str | None) -> str:
 class _NamedStep(Step[C]):
     """Simple wrapper giving a callable step a ``name`` attribute."""
 
-    def __init__(self, name: str, fn: Callable[[C], None]) -> None:
+    name: str
+    component: Component[Any, Any] | None
+
+    def __init__(
+        self,
+        name: str,
+        fn: Callable[[C], None],
+        component: Component[Any, Any] | None = None,
+    ) -> None:
         self.name = name
         self._fn = fn
+        self.component = component
 
     def __call__(self, carry: C, item: Any = None) -> None:
         del item
         self._fn(carry)
 
 
-def named[C](name: str, fn: Callable[[C], None]) -> Step[C]:
-    """Wrap ``fn`` as a ``Step`` with the given ``name``."""
-    return _NamedStep(name, fn)
+def named[C](
+    name: str,
+    fn: Callable[[C], None],
+    component: Component[Any, Any] | None = None,
+) -> Step[C]:
+    """Wrap ``fn`` as a ``Step`` with the given ``name``.
+
+    ``component`` is optional metadata used by introspection to derive the
+    step's declared inputs and outputs.
+    """
+    return _NamedStep(name, fn, component=component)
 
 
 class _Chain(Step[C]):

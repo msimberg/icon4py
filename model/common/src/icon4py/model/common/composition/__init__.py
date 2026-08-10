@@ -17,6 +17,7 @@ from icon4py.model.common.composition.combinators import (
     sample,
     when,
 )
+from icon4py.model.common.composition.introspection import show, to_graphviz
 from icon4py.model.common.composition.step import Step, SwapPolicy
 
 
@@ -29,5 +30,7 @@ __all__ = [
     "nested",
     "repeat",
     "sample",
+    "show",
+    "to_graphviz",
     "when",
 ]

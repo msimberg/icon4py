@@ -11,6 +11,10 @@
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 from icon4py.model.standalone_driver.steps import (
     _advect_tracer,
+    _diffuse_before_time_loop,
+    _diffusion,
+    _physics,
+    _solve_nh,
     adjust_ndyn_step,
     advance_clock_step,
     compute_airmass_new_step,
@@ -18,13 +22,9 @@ from icon4py.model.standalone_driver.steps import (
     compute_mean_at_final_step,
     compute_statistics_step,
     compute_total_mass_and_energy_step,
-    diffuse_before_time_loop_step,
-    diffusion_step,
     end_of_step_step,
     finalize_step,
     io_snapshot_step,
-    physics_step,
-    solve_nh_step,
     swap_step,
     sync_step,
     update_time_levels_step,
@@ -37,7 +37,7 @@ def run_time_integration_plain(carry: DriverLoopState) -> None:  # noqa: PLR0912
         if carry.services.io_monitor is not None:
             io_snapshot_step(carry)
 
-        diffuse_before_time_loop_step(carry)
+        _diffuse_before_time_loop(carry)
 
         for time_step in range(carry.clock.n_time_steps):
             carry.begin_time_step(time_step, carry.clock.n_time_steps)
@@ -53,7 +53,7 @@ def run_time_integration_plain(carry: DriverLoopState) -> None:  # noqa: PLR0912
                     carry.begin_substep(dyn_substep, ndyn_substeps_var)
                     compute_statistics_step(carry)
                     update_time_levels_step(carry)
-                    solve_nh_step(carry)
+                    _solve_nh(carry)
                     if dyn_substep != ndyn_substeps_var - 1:
                         carry.states.prognostics.swap()
                 compute_total_mass_and_energy_step(carry)
@@ -65,14 +65,14 @@ def run_time_integration_plain(carry: DriverLoopState) -> None:  # noqa: PLR0912
                 carry.granules.diffusion is not None
                 and carry.granules.diffusion.config.apply_to_horizontal_wind
             ):
-                diffusion_step(carry)
+                _diffusion(carry)
 
             if carry.granules.tracer_advection is not None:
                 for tracer_current in carry.states.tracers.current.active_fields():
                     _advect_tracer(carry, tracer_current)
 
             if carry.granules.physics is not None:
-                physics_step(carry)
+                _physics(carry)
 
             swap_step(carry)
             sync_step(carry)
