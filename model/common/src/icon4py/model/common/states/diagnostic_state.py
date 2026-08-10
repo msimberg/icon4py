@@ -5,6 +5,7 @@
 #
 # Please, refer to the LICENSE file in the root directory.
 # SPDX-License-Identifier: BSD-3-Clause
+
 from __future__ import annotations
 
 import dataclasses
@@ -13,6 +14,7 @@ from typing import TYPE_CHECKING
 import gt4py.next as gtx
 
 from icon4py.model.common import dimension as dims, field_type_aliases as fa, type_alias as ta
+from icon4py.model.common.states import quantities as q, spec
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -31,17 +33,59 @@ class DiagnosticState:
     """
 
     #: air pressure [Pa] at cell center and full levels, originally defined as pres in ICON
-    pressure: fa.CellKField[ta.wpfloat]
+    pressure: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.AIR_PRESSURE.name,
+        units=q.AIR_PRESSURE.units,
+        dims=q.AIR_PRESSURE.dims,
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        labels=["diagnostic", "output"],
+    )
     #: air pressure [Pa] at cell center and half levels, originally defined as pres_ifc and pres_sfc for surface pressure in ICON.
-    pressure_ifc: fa.CellKField[ta.wpfloat]
+    pressure_ifc: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.AIR_PRESSURE_ON_INTERFACE_LEVELS.name,
+        units=q.AIR_PRESSURE_ON_INTERFACE_LEVELS.units,
+        dims=q.AIR_PRESSURE_ON_INTERFACE_LEVELS.dims,
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        labels=["diagnostic", "output", "restart"],
+    )
     #: air temperature [K] at cell center, originally defined as temp in ICON
-    temperature: fa.CellKField[ta.wpfloat]
+    temperature: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.AIR_TEMPERATURE.name,
+        units=q.AIR_TEMPERATURE.units,
+        dims=q.AIR_TEMPERATURE.dims,
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        labels=["diagnostic", "output"],
+    )
     #: air virtual temperature [K] at cell center, originally defined as tempv in ICON
-    virtual_temperature: fa.CellKField[ta.wpfloat]
+    virtual_temperature: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.AIR_VIRTUAL_TEMPERATURE.name,
+        units=q.AIR_VIRTUAL_TEMPERATURE.units,
+        dims=q.AIR_VIRTUAL_TEMPERATURE.dims,
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        labels=["diagnostic", "output"],
+    )
     #: zonal wind speed [m/s] at cell center
-    u: fa.CellKField[ta.wpfloat]
+    u: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.EASTWARD_WIND.name,
+        units=q.EASTWARD_WIND.units,
+        dims=q.EASTWARD_WIND.dims,
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        labels=["diagnostic", "output"],
+    )
     #: meridional wind speed [m/s] at cell center
-    v: fa.CellKField[ta.wpfloat]
+    v: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.NORTHWARD_WIND.name,
+        units=q.NORTHWARD_WIND.units,
+        dims=q.NORTHWARD_WIND.dims,
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        labels=["diagnostic", "output"],
+    )
 
     @property
     def surface_pressure(self) -> fa.CellField[ta.wpfloat]:

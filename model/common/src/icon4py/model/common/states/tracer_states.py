@@ -121,6 +121,7 @@ class TracerState:
         dims=q.SPECIFIC_HUMIDITY.dims,
         intent=spec.Intent.READWRITE,
         lifetime=spec.Lifetime.PERSISTENT,
+        labels=["prognostic", "tracer", "restart"],
         default=None,
     )
     #: specific cloud water content [kg/kg] at cell center
@@ -130,6 +131,7 @@ class TracerState:
         dims=q.SPECIFIC_CLOUD_CONTENT.dims,
         intent=spec.Intent.READWRITE,
         lifetime=spec.Lifetime.PERSISTENT,
+        labels=["prognostic", "tracer", "restart"],
         default=None,
     )
     #: specific cloud ice content [kg/kg] at cell center
@@ -139,6 +141,7 @@ class TracerState:
         dims=q.SPECIFIC_ICE_CONTENT.dims,
         intent=spec.Intent.READWRITE,
         lifetime=spec.Lifetime.PERSISTENT,
+        labels=["prognostic", "tracer", "restart"],
         default=None,
     )
     #: specific rain content [kg/kg] at cell center
@@ -148,6 +151,7 @@ class TracerState:
         dims=q.SPECIFIC_RAIN_CONTENT.dims,
         intent=spec.Intent.READWRITE,
         lifetime=spec.Lifetime.PERSISTENT,
+        labels=["prognostic", "tracer", "restart"],
         default=None,
     )
     #: specific snow content [kg/kg] at cell center
@@ -157,6 +161,7 @@ class TracerState:
         dims=q.SPECIFIC_SNOW_CONTENT.dims,
         intent=spec.Intent.READWRITE,
         lifetime=spec.Lifetime.PERSISTENT,
+        labels=["prognostic", "tracer", "restart"],
         default=None,
     )
     #: specific graupel content [kg/kg] at cell center
@@ -166,6 +171,7 @@ class TracerState:
         dims=q.SPECIFIC_GRAUPEL_CONTENT.dims,
         intent=spec.Intent.READWRITE,
         lifetime=spec.Lifetime.PERSISTENT,
+        labels=["prognostic", "tracer", "restart"],
         default=None,
     )
 

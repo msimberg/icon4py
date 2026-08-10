@@ -105,6 +105,25 @@ VIRTUAL_POTENTIAL_TEMPERATURE: Final[Quantity] = register(
     "virtual_potential_temperature", "K", (dims.CellDim, dims.KDim), "theta_v"
 )
 
+#: Derived diagnostic quantities computed by ``update_derived_quantities``.
+AIR_TEMPERATURE: Final[Quantity] = register(
+    "air_temperature", "K", (dims.CellDim, dims.KDim), "temp"
+)
+AIR_VIRTUAL_TEMPERATURE: Final[Quantity] = register(
+    "air_virtual_temperature", "K", (dims.CellDim, dims.KDim), "tempv"
+)
+AIR_PRESSURE: Final[Quantity] = register("air_pressure", "Pa", (dims.CellDim, dims.KDim), "pres")
+AIR_PRESSURE_ON_INTERFACE_LEVELS: Final[Quantity] = register(
+    "air_pressure_on_interface_levels", "Pa", (dims.CellDim, dims.KHalfDim), "pres_ifc"
+)
+AIR_PRESSURE_AT_GROUND_LEVEL: Final[Quantity] = register(
+    "air_pressure_at_ground_level", "Pa", (dims.CellDim,), "pres_sfc"
+)
+EASTWARD_WIND: Final[Quantity] = register("eastward_wind", "m s-1", (dims.CellDim, dims.KDim), "u")
+NORTHWARD_WIND: Final[Quantity] = register(
+    "northward_wind", "m s-1", (dims.CellDim, dims.KDim), "v"
+)
+
 #: Tracer quantities.
 SPECIFIC_HUMIDITY: Final[Quantity] = register(
     "specific_humidity", "1", (dims.CellDim, dims.KDim), "qv"
