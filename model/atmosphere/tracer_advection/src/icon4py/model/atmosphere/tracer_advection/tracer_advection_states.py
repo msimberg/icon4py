@@ -110,16 +110,40 @@ class AdvectionInterpolationState:
     """Represents the interpolation state needed in tracer_advection."""
 
     #: factor for divergence
-    geofac_div: gtx.Field[gtx.Dims[dims.CellDim, dims.C2EDim], ta.wpfloat]
+    geofac_div: gtx.Field[gtx.Dims[dims.CellDim, dims.C2EDim], ta.wpfloat] = spec.spec(
+        quantity=q.GEOFAC_DIV.name,
+        units=q.GEOFAC_DIV.units,
+        dims=q.GEOFAC_DIV.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
 
     #: coefficients used for rbf interpolation of the tangential velocity component
-    rbf_vec_coeff_e: gtx.Field[gtx.Dims[dims.EdgeDim, dims.E2C2EDim], ta.wpfloat]
+    rbf_vec_coeff_e: gtx.Field[gtx.Dims[dims.EdgeDim, dims.E2C2EDim], ta.wpfloat] = spec.spec(
+        quantity=q.ICON_RBF_VEC_COEFF_E.name,
+        units=q.ICON_RBF_VEC_COEFF_E.units,
+        dims=q.ICON_RBF_VEC_COEFF_E.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
 
     #: x-components of positions of various points on local plane tangential to the edge midpoint
-    pos_on_tplane_e_1: gtx.Field[gtx.Dims[dims.EdgeDim, dims.E2CDim], ta.wpfloat]
+    pos_on_tplane_e_1: gtx.Field[gtx.Dims[dims.EdgeDim, dims.E2CDim], ta.wpfloat] = spec.spec(
+        quantity=q.ICON_POS_ON_TPLANE_E_1.name,
+        units=q.ICON_POS_ON_TPLANE_E_1.units,
+        dims=q.ICON_POS_ON_TPLANE_E_1.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
 
     #: y-components of positions of various points on local plane tangential to the edge midpoint
-    pos_on_tplane_e_2: gtx.Field[gtx.Dims[dims.EdgeDim, dims.E2CDim], ta.wpfloat]
+    pos_on_tplane_e_2: gtx.Field[gtx.Dims[dims.EdgeDim, dims.E2CDim], ta.wpfloat] = spec.spec(
+        quantity=q.ICON_POS_ON_TPLANE_E_2.name,
+        units=q.ICON_POS_ON_TPLANE_E_2.units,
+        dims=q.ICON_POS_ON_TPLANE_E_2.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
 
 
 @dataclasses.dataclass(frozen=True)

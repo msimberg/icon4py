@@ -329,12 +329,14 @@ def _assemble_run(
     diagnostic_state = diagnostics.initialize_diagnostic_state(
         grid=icon4py_driver.grid, allocator=allocator
     )
+    assert icon4py_driver.granules.registry is not None
     ds = driver_states.assemble_driver_states(
         grid=icon4py_driver.grid,
         allocator=allocator,
         backend=icon4py_driver.backend,
         exchange=icon4py_driver.exchange,
         static_fields=icon4py_driver.static_field_factories,
+        registry=icon4py_driver.granules.registry,
         prognostic_state_now=prognostic_state_now,
         tracer_state_now=tracer_state_now,
         diagnostic_state=diagnostic_state,

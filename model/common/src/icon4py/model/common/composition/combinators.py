@@ -18,10 +18,29 @@ from icon4py.model.common.composition.step import Step, SwapPolicy
 
 
 C = TypeVar("C")
+InnerC = TypeVar("InnerC")
+OuterC = TypeVar("OuterC")
 
 
 def _default_name(stem: str, name: str | None) -> str:
     return stem if name is None else name
+
+
+class _NamedStep(Step[C]):
+    """Simple wrapper giving a callable step a ``name`` attribute."""
+
+    def __init__(self, name: str, fn: Callable[[C], None]) -> None:
+        self.name = name
+        self._fn = fn
+
+    def __call__(self, carry: C, item: Any = None) -> None:
+        del item
+        self._fn(carry)
+
+
+def named[C](name: str, fn: Callable[[C], None]) -> Step[C]:
+    """Wrap ``fn`` as a ``Step`` with the given ``name``."""
+    return _NamedStep(name, fn)
 
 
 class _Chain(Step[C]):
@@ -30,6 +49,7 @@ class _Chain(Step[C]):
         self._steps = steps
 
     def __call__(self, carry: C, item: Any = None) -> None:
+        del item
         for step in self._steps:
             step(carry)
 
@@ -48,7 +68,7 @@ class _Repeat(Step[C]):
         pre: Step[C] | None,
         post: Step[C] | None,
         swap: SwapPolicy,
-        swap_target: Callable[[C], Any] | None,
+        swap_target: Callable[[C], Any],
         set_loop_context: Callable[[C, int, int], None] | None,
         name: str | None,
     ) -> None:
@@ -61,7 +81,11 @@ class _Repeat(Step[C]):
         self._swap_target = swap_target
         self._set_loop_context = set_loop_context
 
+        if swap is not SwapPolicy.NEVER and swap_target is None:
+            raise ValueError("swap_target is required when swap policy is not NEVER")
+
     def __call__(self, carry: C, item: Any = None) -> None:
+        del item
         total = self._times(carry) if callable(self._times) else self._times
         if self._pre is not None:
             self._pre(carry)
@@ -69,7 +93,7 @@ class _Repeat(Step[C]):
             if self._set_loop_context is not None:
                 self._set_loop_context(carry, index, total)
             self._step(carry)
-            if self._swap is not SwapPolicy.NEVER and self._swap_target is not None:
+            if self._swap is not SwapPolicy.NEVER:
                 if self._swap is SwapPolicy.ALWAYS or index != total - 1:
                     self._swap_target(carry).swap()
         if self._post is not None:
@@ -94,13 +118,19 @@ def repeat[C](
     current index and total count. ``swap_target`` must expose a ``.swap()``
     method when a swap policy other than ``NEVER`` is used.
     """
+    if swap is not SwapPolicy.NEVER:
+        if swap_target is None:
+            raise ValueError("swap_target is required when swap policy is not NEVER")
+        target: Callable[[C], Any] = swap_target
+    else:
+        target = lambda c: None  # noqa: E731
     return _Repeat(
         step,
         times=times,
         pre=pre,
         post=post,
         swap=swap,
-        swap_target=swap_target,
+        swap_target=target,
         set_loop_context=set_loop_context,
         name=name,
     )
@@ -121,6 +151,7 @@ class _When(Step[C]):
         self._else = else_
 
     def __call__(self, carry: C, item: Any = None) -> None:
+        del item
         if self._predicate(carry):
             self._then(carry)
         elif self._else is not None:
@@ -173,8 +204,8 @@ class _Sample(Step[C]):
         self,
         step: Step[C],
         *,
-        every: datetime.timedelta | int,
-        clock: Callable[[C], datetime.timedelta | int],
+        every: datetime.timedelta,
+        clock: Callable[[C], datetime.timedelta],
         key: str,
         cache: Callable[[C], dict[str, Any]],
         name: str | None,
@@ -185,20 +216,14 @@ class _Sample(Step[C]):
         self._clock = clock
         self._key = key
         self._cache = cache
-        if isinstance(every, datetime.timedelta):
-            assert every > datetime.timedelta(0), "sample 'every' must be positive"
-        else:
-            assert every > 0, "sample 'every' must be positive"
+        if every <= datetime.timedelta(0):
+            raise ValueError("sample 'every' must be positive")
 
     def __call__(self, carry: C, item: Any = None) -> None:
+        del item
         cache = self._cache(carry)
         clock_value = self._clock(carry)
-        if isinstance(self._every, datetime.timedelta):
-            assert isinstance(clock_value, datetime.timedelta)
-            firing = clock_value % self._every == datetime.timedelta(0)
-        else:
-            assert isinstance(clock_value, int)
-            firing = clock_value % self._every == 0
+        firing = clock_value % self._every == datetime.timedelta(0)
         if firing or self._key not in cache:
             self._step(carry)
 
@@ -206,8 +231,8 @@ class _Sample(Step[C]):
 def sample[C](
     step: Step[C],
     *,
-    every: datetime.timedelta | int,
-    clock: Callable[[C], datetime.timedelta | int],
+    every: datetime.timedelta,
+    clock: Callable[[C], datetime.timedelta],
     key: str,
     cache: Callable[[C], dict[str, Any]],
     name: str | None = None,
@@ -220,3 +245,37 @@ def sample[C](
     place for downstream readers.
     """
     return _Sample(step, every=every, clock=clock, key=key, cache=cache, name=name)
+
+
+class _Nested(Step[OuterC]):
+    """Embed a composition over ``InnerC`` into a composition over ``OuterC``."""
+
+    def __init__(
+        self,
+        step: Step[InnerC],
+        *,
+        enter: Callable[[OuterC], InnerC],
+        name: str | None,
+    ) -> None:
+        self.name = _default_name("nested", name)
+        self._step = step
+        self._enter = enter
+
+    def __call__(self, carry: OuterC, item: Any = None) -> None:
+        del item
+        self._step(self._enter(carry))
+
+
+def nested[OuterC, InnerC](
+    step: Step[InnerC],
+    *,
+    enter: Callable[[OuterC], InnerC],
+    name: str | None = None,
+) -> Step[OuterC]:
+    """Run ``step`` on an inner carry derived from the outer carry.
+
+    This lets a sub-composition with a different carry type (e.g. the physics
+    loop over ``PhysicsLoopState``) appear as a single step in the outer
+    composition while remaining introspectable as a tree.
+    """
+    return _Nested(step, enter=enter, name=name)

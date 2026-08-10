@@ -8,7 +8,15 @@
 
 """Generic combinators for composing sequential model steps."""
 
-from icon4py.model.common.composition.combinators import chain, foreach, repeat, sample, when
+from icon4py.model.common.composition.combinators import (
+    chain,
+    foreach,
+    named,
+    nested,
+    repeat,
+    sample,
+    when,
+)
 from icon4py.model.common.composition.step import Step, SwapPolicy
 
 
@@ -17,6 +25,8 @@ __all__ = [
     "SwapPolicy",
     "chain",
     "foreach",
+    "named",
+    "nested",
     "repeat",
     "sample",
     "when",

@@ -130,7 +130,7 @@ attrs: dict[str, model.FieldMetaData] = {
         long_name="position on tplane x",
         units="",  # TODO(): check or confirm
         dims=(dims.EdgeDim, dims.E2CDim),
-        icon_var_name="pos_on_tplane_e_x",
+        icon_var_name="pos_on_tplane_e_1",
         dtype=ta.wpfloat,
     ),
     POS_ON_TPLANE_E_Y: dict(
@@ -138,7 +138,7 @@ attrs: dict[str, model.FieldMetaData] = {
         long_name="position on tplane y",
         units="",  # TODO(): check or confirm
         dims=(dims.EdgeDim, dims.E2CDim),
-        icon_var_name="pos_on_tplane_e_y",
+        icon_var_name="pos_on_tplane_e_2",
         dtype=ta.wpfloat,
     ),
     CELL_AW_VERTS: dict(
@@ -146,7 +146,7 @@ attrs: dict[str, model.FieldMetaData] = {
         long_name="coefficient for interpolation from cells to verts by area weighting",
         units="",
         dims=(dims.VertexDim, dims.V2CDim),
-        icon_var_name="cells_aw_verts",
+        icon_var_name="c_intp",
         dtype=ta.wpfloat,
     ),
     RBF_VEC_COEFF_C1: dict(

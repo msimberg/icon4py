@@ -361,7 +361,7 @@ attrs: dict[str, model.FieldMetaData] = {
         long_name="weighting_factor_for_quadratic_interpolation_to_edge_center",
         units="",
         dims=(dims.EdgeDim, dims.KDim),
-        icon_var_name="weighting_factor_for_quadratic_interpolation_to_edge_center",
+        icon_var_name="wgtfacq_e",
         dtype=ta.wpfloat,
     ),
     MAXSLP: dict(

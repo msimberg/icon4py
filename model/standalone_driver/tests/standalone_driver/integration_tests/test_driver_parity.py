@@ -67,7 +67,9 @@ def _field_equality(left: object, right: object) -> bool:
             left.corrector, right.corrector
         )
     if dataclasses.is_dataclass(left) and dataclasses.is_dataclass(right):
-        if left.__class__ is not right.__class__:
+        left_fields = {f.name for f in dataclasses.fields(left)}
+        right_fields = {f.name for f in dataclasses.fields(right)}
+        if left_fields != right_fields:
             return False
         return all(
             _field_equality(getattr(left, field.name), getattr(right, field.name))

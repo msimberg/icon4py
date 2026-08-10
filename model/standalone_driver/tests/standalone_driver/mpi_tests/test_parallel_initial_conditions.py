@@ -149,19 +149,20 @@ def test_initial_conditions_compare_single_multi_rank(  # noqa: PLR0917 [too-man
     single_rank_diagnostic = diagnostics.initialize_diagnostic_state(
         grid=single_rank_icon4py_driver.grid, allocator=allocator
     )
+    assert single_rank_icon4py_driver.granules.registry is not None
     single_rank_ds: driver_states.DriverStates = driver_states.assemble_driver_states(
         grid=single_rank_icon4py_driver.grid,
         allocator=allocator,
         backend=single_rank_icon4py_driver.backend,
         exchange=single_rank_icon4py_driver.exchange,
         static_fields=single_rank_icon4py_driver.static_field_factories,
+        registry=single_rank_icon4py_driver.granules.registry,
         prognostic_state_now=single_rank_prognostic,
         tracer_state_now=single_rank_tracer,
         diagnostic_state=single_rank_diagnostic,
         experiment_config=single_rank_icon4py_driver.config,
         solve_nonhydro_diagnostic_state=single_rank_dycore_diagnostic,
     )
-
     multi_rank_config = experiment.config.with_overrides(
         driver={"output_path": tmp_path / f"ci_driver_output_mpi_rank_{process_props.rank}"}
     )
@@ -207,12 +208,14 @@ def test_initial_conditions_compare_single_multi_rank(  # noqa: PLR0917 [too-man
     multi_rank_diagnostic = diagnostics.initialize_diagnostic_state(
         grid=multi_rank_icon4py_driver.grid, allocator=allocator
     )
+    assert multi_rank_icon4py_driver.granules.registry is not None
     multi_rank_ds: driver_states.DriverStates = driver_states.assemble_driver_states(
         grid=multi_rank_icon4py_driver.grid,
         allocator=allocator,
         backend=multi_rank_icon4py_driver.backend,
         exchange=multi_rank_icon4py_driver.exchange,
         static_fields=multi_rank_icon4py_driver.static_field_factories,
+        registry=multi_rank_icon4py_driver.granules.registry,
         prognostic_state_now=multi_rank_prognostic,
         tracer_state_now=multi_rank_tracer,
         diagnostic_state=multi_rank_diagnostic,

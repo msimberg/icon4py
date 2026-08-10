@@ -551,6 +551,7 @@ class PrepAdvection:
             dims=q.ICON_VOL_FLX_IC.dims,
             intent=spec.Intent.READWRITE,
             lifetime=spec.Lifetime.PERSISTENT,
+            role=spec.Role.DIAGNOSTIC,
         )
     )
     """

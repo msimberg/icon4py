@@ -238,7 +238,7 @@ def test_sample_computes_when_first_in_window_inactive_and_cache_empty() -> None
 
 def test_sample_every_positive_is_required_for_modulo() -> None:
     """The recycle semantics assume ``every > 0`` so that modulo is well-defined."""
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match=r"every.*positive"):
         sample(
             _append("x"),
             every=datetime.timedelta(0),
@@ -246,3 +246,8 @@ def test_sample_every_positive_is_required_for_modulo() -> None:
             key="p",
             cache=lambda c: c.cache,
         )
+
+
+def test_repeat_swap_without_target_raises_at_construction() -> None:
+    with pytest.raises(ValueError, match="swap_target"):
+        repeat(_append("x"), times=2, swap=SwapPolicy.ALWAYS)

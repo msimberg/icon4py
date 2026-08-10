@@ -175,6 +175,7 @@ files = [
   '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/spec.py',
   '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/quantities.py',
   '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/validation.py',
+  '$MYPY_CONFIG_FILE_DIR/model/common/src/icon4py/model/common/states/field_registry.py',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/states',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/math',
   '$MYPY_CONFIG_FILE_DIR/model/common/tests/common/interpolation',
@@ -386,6 +387,7 @@ max-complexity = 15
 # Avoid messing up conditions in gt4py stencils (SIM300)
 # Stencil parameters referenced in domain specs must remain positional (PLR0917)
 "**/model/**/stencils/*.py" = ["SIM300", "PLR0917"]
+"**/model/common/src/icon4py/model/common/grid/states.py" = ["RUF009"]
 # Ignore spurious errors when explicitly importing fixtures in tests (F401, F811).
 # Check: https://github.com/astral-sh/ruff/issues/10662
 # TODO(havogt): fix error related to PLR0915, PLR0911, TD, RUF012 and remove ignores below
