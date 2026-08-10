@@ -291,6 +291,31 @@ def _register_static_field_recipes(
         registry.recipe(canonical, _recipe(metrics_field_source, name))
 
 
+def _register_slice_and_constant_recipes(
+    registry: field_registry.FieldRegistry,
+    static_field_factories: static_fields.StaticFieldFactories,
+    grid: icon_grid.IconGrid,
+    backend: gtx_typing.Backend | None,
+) -> None:
+    """Register recipes for quantities that are slices or constants, not factory metadata.
+
+    The LSQ pseudo-inverse is stored by the interpolation factory as one 3-D field;
+    tracer advection needs the first two slices as separate 2-D buffers. The
+    deep-atmosphere modification factors are constant 1 in the shallow atmosphere,
+    which is the only mode the dycore supports.
+    """
+    lsq_pseudoinv = static_field_factories.interpolation.get(interpolation_attributes.LSQ_PSEUDOINV)
+    registry.recipe(quantities.LSQ_PSEUDOINV_1.name, lambda: lsq_pseudoinv[:, 0, :])
+    registry.recipe(quantities.LSQ_PSEUDOINV_2.name, lambda: lsq_pseudoinv[:, 1, :])
+
+    deepatmo_constant = data_alloc.constant_field(
+        grid, 1.0, dims.KDim, allocator=model_backends.get_allocator(backend)
+    )
+    registry.recipe(quantities.DEEPATMO_DIVH.name, lambda: deepatmo_constant)
+    registry.recipe(quantities.DEEPATMO_DIVZL.name, lambda: deepatmo_constant)
+    registry.recipe(quantities.DEEPATMO_DIVZU.name, lambda: deepatmo_constant)
+
+
 def _declare_static_and_handoff_containers(registry: field_registry.FieldRegistry) -> None:
     """Declare the static-field containers and the dycore/advection boundaries."""
     registry.declare(grid_states.CellParams)
@@ -300,6 +325,8 @@ def _declare_static_and_handoff_containers(registry: field_registry.FieldRegistr
     registry.declare(dycore_states.InterpolationState)
     registry.declare(dycore_states.MetricStateNonHydro)
     registry.declare(tracer_advection_states.AdvectionInterpolationState)
+    registry.declare(tracer_advection_states.AdvectionLeastSquaresState)
+    registry.declare(tracer_advection_states.AdvectionMetricState)
     registry.declare(dycore_states.PrepAdvection)
     registry.declare(tracer_advection_states.AdvectionPrepAdvState)
     registry.declare(solve_nh.SolveNonHydroInput)
@@ -322,6 +349,7 @@ def initialize_granules(
     log.info("creating field registry")
     registry = field_registry.FieldRegistry(grid=grid, backend=backend)
     _register_static_field_recipes(registry, static_field_factories)
+    _register_slice_and_constant_recipes(registry, static_field_factories, grid, backend)
     _declare_static_and_handoff_containers(registry)
     registry.seal()
 
@@ -385,33 +413,13 @@ def initialize_granules(
     tracer_advection_metric_state: tracer_advection_states.AdvectionMetricState | None = None
     tracer_advection_granule: tracer_advection.Advection | None = None
     if config.tracer_advection is not None:
-        deepatmo_shallow_factor = data_alloc.constant_field(
-            grid, 1.0, dims.KDim, allocator=model_backends.get_allocator(backend)
-        )
         tracer_advection_interpolation_state = registry.build(
             tracer_advection_states.AdvectionInterpolationState
         )
-        tracer_advection_least_squares_state = tracer_advection_states.AdvectionLeastSquaresState(
-            lsq_pseudoinv_1=static_field_factories.interpolation.get(
-                interpolation_attributes.LSQ_PSEUDOINV
-            )[:, 0, :],
-            lsq_pseudoinv_2=static_field_factories.interpolation.get(
-                interpolation_attributes.LSQ_PSEUDOINV
-            )[:, 1, :],
+        tracer_advection_least_squares_state = registry.build(
+            tracer_advection_states.AdvectionLeastSquaresState
         )
-        tracer_advection_metric_state = tracer_advection_states.AdvectionMetricState(
-            # Shallow atmosphere: the deep-atmosphere modification factors are 1, as
-            # in ICON with 'ldeepatmo = .FALSE.' (mo_nonhydro_state.f90 initialises
-            # them to 1 and only mo_vertical_grid.f90 overwrites them, guarded by
-            # 'ldeepatmo'). Using the factory's deep-atmosphere values here would be
-            # inconsistent with the dycore, which has no deep-atmosphere mode, and
-            # with the airmass (rho * ddqz_z_full * deepatmo_vol) that tracer
-            # advection divides by.
-            deepatmo_divh=deepatmo_shallow_factor,
-            deepatmo_divzl=deepatmo_shallow_factor,
-            deepatmo_divzu=deepatmo_shallow_factor,
-            ddqz_z_full=registry.buffer(metrics_attributes.DDQZ_Z_FULL),
-        )
+        tracer_advection_metric_state = registry.build(tracer_advection_states.AdvectionMetricState)
         tracer_advection_granule = tracer_advection.convert_config_to_advection(
             grid=grid,
             backend=backend,
@@ -436,7 +444,9 @@ def initialize_granules(
                 scheme=config.muphys.scheme,
             ),
             state=muphys_state.State(
-                grid=grid, metrics=static_field_factories.metrics, backend=backend
+                grid=grid,
+                dz=registry.buffer(metrics_attributes.DDQZ_Z_FULL),
+                backend=backend,
             ),
             time_control=physics_driver.ProcessTimeControl(
                 interval=config.driver.dtime,

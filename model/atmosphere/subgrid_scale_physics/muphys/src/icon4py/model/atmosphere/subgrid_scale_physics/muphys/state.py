@@ -34,7 +34,6 @@ from icon4py.model.common.diagnostic_calculations.stencils import (
     update_exner_and_theta_v,
 )
 from icon4py.model.common.math.stencils import generic_math_operations
-from icon4py.model.common.metrics import metrics_attributes
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -44,7 +43,6 @@ if TYPE_CHECKING:
     from icon4py.model.common.grid import base as base_grid
     from icon4py.model.common.states import (
         diagnostic_state as diagnostics,
-        factory,
         prognostic_state as prognostics,
         tracer_states,
     )
@@ -63,7 +61,7 @@ class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
     def __init__(
         self,
         grid: base_grid.Grid,
-        metrics: factory.FieldSource,
+        dz: fa.CellKField[ta.wpfloat],
         backend: gtx_typing.Backend | None = None,
         diagnostic: diagnostics.DiagnosticState | None = None,
     ) -> None:
@@ -103,8 +101,7 @@ class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
             offset_provider={},
         )
 
-        self.dz = metrics.get(metrics_attributes.DDQZ_Z_FULL)
-        self.rho: fa.CellKField[ta.wpfloat] | None = None
+        self.dz = dz
         self.te: fa.CellKField[ta.wpfloat] | None = None
         self.p: fa.CellKField[ta.wpfloat] | None = None
         self.tv: fa.CellKField[ta.wpfloat] | None = None

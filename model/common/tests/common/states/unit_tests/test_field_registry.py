@@ -11,12 +11,15 @@
 import dataclasses
 from typing import Any
 
+import gt4py.next as gtx
+import numpy as np
 import pytest
 
 from icon4py.model.atmosphere.dycore import dycore_states
 from icon4py.model.atmosphere.tracer_advection import tracer_advection_states
+from icon4py.model.common import dimension as dims
 from icon4py.model.common.grid import base, simple
-from icon4py.model.common.states import field_registry, spec
+from icon4py.model.common.states import field_registry, quantities, spec
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -162,3 +165,44 @@ def test_registry_generation_bump_does_not_invalidate_access(grid: base.Grid) ->
 
     # Access must remain valid across a generation bump.
     assert prep_adv.vn_traj is not None
+
+
+def test_registry_preserves_slice_and_constant_buffer_identity(grid: base.Grid) -> None:
+    """Slice recipes and shared constant recipes emit the expected buffers (D18)."""
+    registry = field_registry.FieldRegistry(grid=grid, backend=None)
+    lsq_full = gtx.as_field(
+        (dims.CellDim, dims.LsqUnkDim, dims.C2E2CDim),
+        np.zeros((grid.num_cells, 2, grid.size[dims.C2E2CDim])),  # type: ignore[arg-type]
+    )
+    registry.recipe(quantities.LSQ_PSEUDOINV_1.name, lambda: lsq_full[:, 0, :])
+    registry.recipe(quantities.LSQ_PSEUDOINV_2.name, lambda: lsq_full[:, 1, :])
+
+    deepatmo_constant = data_alloc.constant_field(grid, 1.0, dims.KDim)
+    registry.recipe(quantities.DEEPATMO_DIVH.name, lambda: deepatmo_constant)
+    registry.recipe(quantities.DEEPATMO_DIVZL.name, lambda: deepatmo_constant)
+    registry.recipe(quantities.DEEPATMO_DIVZU.name, lambda: deepatmo_constant)
+    ddqz_z_full = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, dtype=float)
+    registry.recipe(quantities.DDQZ_Z_FULL.name, lambda: ddqz_z_full)
+
+    registry.declare(tracer_advection_states.AdvectionLeastSquaresState)
+    registry.declare(tracer_advection_states.AdvectionMetricState)
+    registry.seal()
+
+    least_squares_state = registry.build(tracer_advection_states.AdvectionLeastSquaresState)
+    metric_state = registry.build(tracer_advection_states.AdvectionMetricState)
+
+    # Slicing produces distinct GT4Py field wrappers, but the values must match.
+    assert np.array_equal(
+        least_squares_state.lsq_pseudoinv_1.ndarray,
+        lsq_full.ndarray[:, 0, :],  # type: ignore[arg-type]
+    )
+    assert np.array_equal(
+        least_squares_state.lsq_pseudoinv_2.ndarray,
+        lsq_full.ndarray[:, 1, :],  # type: ignore[arg-type]
+    )
+    # The three deep-atmosphere factors share one constant buffer.
+    assert metric_state.deepatmo_divh is deepatmo_constant
+    assert metric_state.deepatmo_divzl is deepatmo_constant
+    assert metric_state.deepatmo_divzu is deepatmo_constant
+    # The metric state reads the registry's DDQZ_Z_FULL buffer directly.
+    assert metric_state.ddqz_z_full is ddqz_z_full

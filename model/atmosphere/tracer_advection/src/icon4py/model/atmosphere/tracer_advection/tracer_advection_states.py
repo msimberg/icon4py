@@ -151,8 +151,20 @@ class AdvectionLeastSquaresState:
     """Represents the least squares state needed in tracer_advection."""
 
     #: pseudo (or Moore-Penrose) inverse of lsq design matrix A
-    lsq_pseudoinv_1: gtx.Field[gtx.Dims[dims.CellDim, dims.C2E2CDim], ta.wpfloat]
-    lsq_pseudoinv_2: gtx.Field[gtx.Dims[dims.CellDim, dims.C2E2CDim], ta.wpfloat]
+    lsq_pseudoinv_1: gtx.Field[gtx.Dims[dims.CellDim, dims.C2E2CDim], ta.wpfloat] = spec.spec(
+        quantity=q.LSQ_PSEUDOINV_1.name,
+        units=q.LSQ_PSEUDOINV_1.units,
+        dims=q.LSQ_PSEUDOINV_1.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
+    lsq_pseudoinv_2: gtx.Field[gtx.Dims[dims.CellDim, dims.C2E2CDim], ta.wpfloat] = spec.spec(
+        quantity=q.LSQ_PSEUDOINV_2.name,
+        units=q.LSQ_PSEUDOINV_2.units,
+        dims=q.LSQ_PSEUDOINV_2.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -168,16 +180,34 @@ class AdvectionMetricState:
     """
 
     #: metrical modification factor for horizontal part of divergence at full levels (KDim)
-    deepatmo_divh: fa.KField[ta.wpfloat]
-
-    #: metrical modification factor for vertical part of divergence at full levels (KDim)
-    deepatmo_divzl: fa.KField[ta.wpfloat]
-
-    #: metrical modification factor for vertical part of divergence at full levels (KDim)
-    deepatmo_divzu: fa.KField[ta.wpfloat]
-
-    #: vertical grid spacing at full levels
-    ddqz_z_full: fa.CellKField[ta.wpfloat]
+    deepatmo_divh: fa.KField[ta.wpfloat] = spec.spec(
+        quantity=q.DEEPATMO_DIVH.name,
+        units=q.DEEPATMO_DIVH.units,
+        dims=q.DEEPATMO_DIVH.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
+    deepatmo_divzl: fa.KField[ta.wpfloat] = spec.spec(
+        quantity=q.DEEPATMO_DIVZL.name,
+        units=q.DEEPATMO_DIVZL.units,
+        dims=q.DEEPATMO_DIVZL.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
+    deepatmo_divzu: fa.KField[ta.wpfloat] = spec.spec(
+        quantity=q.DEEPATMO_DIVZU.name,
+        units=q.DEEPATMO_DIVZU.units,
+        dims=q.DEEPATMO_DIVZU.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
+    ddqz_z_full: fa.CellKField[ta.wpfloat] = spec.spec(
+        quantity=q.DDQZ_Z_FULL.name,
+        units=q.DDQZ_Z_FULL.units,
+        dims=q.DDQZ_Z_FULL.dims,
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.STATIC,
+    )
 
 
 def initialize_advection_diagnostic_state(

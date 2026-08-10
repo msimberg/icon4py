@@ -21,7 +21,6 @@ import gt4py.next as gtx
 from icon4py.model.common import prescribed_tendencies
 from icon4py.model.common.decomposition import definitions as decomposition_defs
 from icon4py.model.common.io import io as common_io
-from icon4py.model.common.states import static_fields
 from icon4py.model.standalone_driver import config as driver_config, driver_states, driver_utils
 
 
@@ -38,7 +37,6 @@ class DriverServices:
     io_monitor: common_io.IOMonitor | None
     tendencies: prescribed_tendencies.PrescribedTendencies | None
     timer_collection: driver_states.TimerCollection
-    static_field_factories: static_fields.StaticFieldFactories
     backend: gtx.typing.Backend | None
     xp: types.ModuleType
     allocator: gtx.typing.Allocator

@@ -279,14 +279,11 @@ def build_solve_nh_step(component: solve_nonhydro.SolveNonhydro | None) -> Step[
 
 def _compute_total_mass_and_energy(carry: DriverLoopState) -> None:
     if carry.config.driver.enable_statistics_logging:
+        assert carry.granules.registry is not None
         prognostic_state = carry.states.prognostics.next
         rho_ndarray = prognostic_state.rho.ndarray
-        cell_area_ndarray = carry.services.static_field_factories.geometry.get(
-            geom_attr.CELL_AREA
-        ).ndarray
-        cell_thickness_ndarray = carry.services.static_field_factories.metrics.get(
-            metrics_attr.DDQZ_Z_FULL
-        ).ndarray
+        cell_area_ndarray = carry.granules.registry.buffer(geom_attr.CELL_AREA).ndarray
+        cell_thickness_ndarray = carry.granules.registry.buffer(metrics_attr.DDQZ_Z_FULL).ndarray
         local_mass = (
             rho_ndarray * cell_area_ndarray[:, carry.services.xp.newaxis] * cell_thickness_ndarray
         )
@@ -452,8 +449,8 @@ def _update_derived_quantities(
     diagnostic_state = carry.states.diagnostic
     prognostic_state = carry.states.prognostics.next
     tracers = carry.states.tracers.next
-    metrics = carry.services.static_field_factories.metrics
-    interpolation = carry.services.static_field_factories.interpolation
+    assert carry.granules.registry is not None
+    registry = carry.granules.registry
 
     def _tracer(name: str) -> fa.CellKField[ta.wpfloat]:
         field = getattr(tracers, name)
@@ -476,9 +473,9 @@ def _update_derived_quantities(
             qr=_tracer("qr"),
             qs=_tracer("qs"),
             qg=_tracer("qg"),
-            ddqz_z_full=metrics.get(metrics_attr.DDQZ_Z_FULL),
-            rbf_vec_coeff_c1=interpolation.get(intp_attr.RBF_VEC_COEFF_C1),
-            rbf_vec_coeff_c2=interpolation.get(intp_attr.RBF_VEC_COEFF_C2),
+            ddqz_z_full=registry.buffer(metrics_attr.DDQZ_Z_FULL),
+            rbf_vec_coeff_c1=registry.buffer(intp_attr.RBF_VEC_COEFF_C1),
+            rbf_vec_coeff_c2=registry.buffer(intp_attr.RBF_VEC_COEFF_C2),
             temperature=diagnostic_state.temperature,
             virtual_temperature=diagnostic_state.virtual_temperature,
             pressure=diagnostic_state.pressure,

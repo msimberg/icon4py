@@ -269,7 +269,22 @@ ICON_VFL_TRACER: Final[Quantity] = register(
     "icon:vfl_tracer", "kg m-1 s-1", (dims.CellDim, dims.KHalfDim), "vfl_tracer"
 )
 
-#: Diffusion metric quantities not already registered from metrics_attributes.
+#: Tracer advection static quantities not provided by the factory metadata.
+LSQ_PSEUDOINV_1: Final[Quantity] = register(
+    "icon:lsq_pseudoinv_1", "", (dims.CellDim, dims.C2E2CDim), "lsq_pseudoinv_1"
+)
+LSQ_PSEUDOINV_2: Final[Quantity] = register(
+    "icon:lsq_pseudoinv_2", "", (dims.CellDim, dims.C2E2CDim), "lsq_pseudoinv_2"
+)
+
+DEEPATMO_DIVH: Final[Quantity] = register("icon:deepatmo_divh", "1", (dims.KDim,), "deepatmo_divh")
+DEEPATMO_DIVZL: Final[Quantity] = register(
+    "icon:deepatmo_divzl", "1", (dims.KDim,), "deepatmo_divzl"
+)
+DEEPATMO_DIVZU: Final[Quantity] = register(
+    "icon:deepatmo_divzu", "1", (dims.KDim,), "deepatmo_divzu"
+)
+
 ICON_ZD_VERTOFFSET: Final[Quantity] = register(
     "icon:zd_vertoffset", "", (dims.CellDim, dims.C2E2CDim, dims.KDim), "zd_vertoffset"
 )
@@ -332,6 +347,7 @@ ICON_MASK_PROG_HALO_C: Final[Quantity] = register(
 #: state dataclass declarations.
 C_LIN_E: Final[Quantity] = get("interpolation_coefficient_from_cell_to_edge")
 COEFF_GRADEKIN: Final[Quantity] = get("coeff_gradekin")
+DDQZ_Z_FULL: Final[Quantity] = get("functional_determinant_of_metrics_on_full_levels")
 DDQZ_Z_HALF: Final[Quantity] = get("functional_determinant_of_metrics_on_interface_levels")
 D2DEXDZ2_FAC1_MC: Final[Quantity] = get("d2dexdz2_fac1_mc")
 D2DEXDZ2_FAC2_MC: Final[Quantity] = get("d2dexdz2_fac2_mc")

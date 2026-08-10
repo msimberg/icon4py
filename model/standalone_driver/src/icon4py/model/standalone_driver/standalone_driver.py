@@ -67,6 +67,7 @@ class Icon4pyDriver:
         granules: driver_utils.Granules,
         model_time_variables: driver_states.ModelTimeVariables,
         vertical_grid_config: v_grid.VerticalGridConfig,
+        vertical_grid: v_grid.VerticalGrid,
         exchange: decomposition_defs.ExchangeRuntime,
         global_reductions: decomposition_defs.Reductions,
         io_monitor: common_io.IOMonitor | None = None,
@@ -80,6 +81,7 @@ class Icon4pyDriver:
         self.static_field_factories = static_field_factories
         self.granules = granules
         self.vertical_grid_config = vertical_grid_config
+        self.vertical_grid = vertical_grid
         self.model_time_variables = model_time_variables
         self.timer_collection = driver_states.TimerCollection(
             [timer.value for timer in driver_states.DriverTimers]
@@ -91,8 +93,7 @@ class Icon4pyDriver:
         driver_utils.display_driver_setup_in_log_file(
             config=self.config.driver,
             model_time_variables=self.model_time_variables,
-            vertical_params=self.static_field_factories.metrics._vertical_grid,
-            tracer_config=self.config.tracer_config,
+            vertical_params=self.vertical_grid,
         )
 
     @functools.cached_property
@@ -121,11 +122,12 @@ class Icon4pyDriver:
         is the only mode the dycore supports; see the matching factors that tracer advection
         gets in ``driver_utils.initialize_granules``.
         """
+        assert self.granules.registry is not None
         return model_options.setup_program(
             program=compute_airmass.compute_airmass,
             backend=self.backend,
             constant_args={
-                "ddqz_z_full_in": self.static_field_factories.metrics.get(metrics_attr.DDQZ_Z_FULL),
+                "ddqz_z_full_in": self.granules.registry.buffer(metrics_attr.DDQZ_Z_FULL),
                 "deepatmo_t1mc_in": data_alloc.constant_field(
                     self.grid, 1.0, dims.KDim, allocator=self._allocator
                 ),
@@ -153,7 +155,6 @@ class Icon4pyDriver:
                 io_monitor=self.io_monitor,
                 tendencies=self.tendencies,
                 timer_collection=self.timer_collection,
-                static_field_factories=self.static_field_factories,
                 backend=self.backend,
                 xp=self._xp,
                 allocator=self._allocator,
@@ -293,6 +294,7 @@ def initialize_driver(
         granules=granules,
         model_time_variables=model_time_variables,
         vertical_grid_config=config.vertical_grid,
+        vertical_grid=vertical_grid,
         exchange=exchange,
         global_reductions=global_reductions,
         tendencies=(
