@@ -38,18 +38,26 @@ def _is_combinator(step: Step[Any]) -> bool:
 
 
 def _children(step: Step[Any]) -> Iterable[Step[Any]]:
+    """Return immediate child steps that are themselves introspectable.
+
+    ``_Foreach`` holds arbitrary callables; only those that are ``Step``
+    instances carry the metadata needed to derive the dataflow graph.
+    """
     children: list[Step[Any]] = []
     if isinstance(step, _Chain):
         children.extend(step._steps)
     elif isinstance(step, _Repeat):
+        if step._pre is not None:
+            children.append(step._pre)
         children.append(step._step)
+        if step._post is not None:
+            children.append(step._post)
     elif isinstance(step, _When):
         children.append(step._then)
         if step._else is not None:
             children.append(step._else)
     elif isinstance(step, _Foreach):
-        # Foreach holds callables, not Steps; introspect them as opaque leaves.
-        pass
+        children.extend(s for s in step._steps if isinstance(s, _NamedStep))
     elif isinstance(step, _Sample | _Nested):
         children.append(step._step)
     return children

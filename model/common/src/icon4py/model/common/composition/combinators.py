@@ -32,33 +32,44 @@ class _NamedStep(Step[C]):
 
     name: str
     component: Component[Any, Any] | None
+    _fn: Callable[..., None]
+    _pass_item: bool
 
     def __init__(
         self,
         name: str,
-        fn: Callable[[C], None],
+        fn: Callable[..., None],
         component: Component[Any, Any] | None = None,
+        pass_item: bool = False,
     ) -> None:
         self.name = name
         self._fn = fn
         self.component = component
+        self._pass_item = pass_item
 
     def __call__(self, carry: C, item: Any = None) -> None:
-        del item
-        self._fn(carry)
+        if self._pass_item:
+            self._fn(carry, item)
+        else:
+            del item
+            self._fn(carry)
 
 
 def named[C](
     name: str,
-    fn: Callable[[C], None],
+    fn: Callable[..., None],
     component: Component[Any, Any] | None = None,
+    pass_item: bool = False,
 ) -> Step[C]:
     """Wrap ``fn`` as a ``Step`` with the given ``name``.
 
     ``component`` is optional metadata used by introspection to derive the
     step's declared inputs and outputs.
+
+    ``pass_item`` is used when the step runs inside ``foreach``; it forwards
+    the iteration item to ``fn``.
     """
-    return _NamedStep(name, fn, component=component)
+    return _NamedStep(name, fn, component=component, pass_item=pass_item)
 
 
 class _Chain(Step[C]):

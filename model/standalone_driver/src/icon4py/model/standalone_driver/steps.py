@@ -74,8 +74,7 @@ def _io_snapshot(carry: DriverLoopState) -> None:
     carry.services.io_monitor.store(state_to_store, carry.clock.simulation_current_datetime)
 
 
-io_snapshot_step = named("io_snapshot_step", _io_snapshot)
-
+io_snapshot_step: Step[DriverLoopState] = named("io_snapshot_step", _io_snapshot)
 
 # --------------------------------------------------------------------------------------
 # Pre-loop diffusion
@@ -136,8 +135,7 @@ def _advance_clock(carry: DriverLoopState) -> None:
         )
 
 
-advance_clock_step = named("advance_clock_step", _advance_clock)
-
+advance_clock_step: Step[DriverLoopState] = named("advance_clock_step", _advance_clock)
 
 # --------------------------------------------------------------------------------------
 # Airmass
@@ -152,7 +150,9 @@ def _compute_airmass_now(carry: DriverLoopState) -> None:
     )
 
 
-compute_airmass_now_step = named("compute_airmass_now_step", _compute_airmass_now)
+compute_airmass_now_step: Step[DriverLoopState] = named(
+    "compute_airmass_now_step", _compute_airmass_now
+)
 
 
 def _compute_airmass_new(carry: DriverLoopState) -> None:
@@ -168,8 +168,9 @@ def _compute_airmass_new(carry: DriverLoopState) -> None:
     )
 
 
-compute_airmass_new_step = named("compute_airmass_new_step", _compute_airmass_new)
-
+compute_airmass_new_step: Step[DriverLoopState] = named(
+    "compute_airmass_new_step", _compute_airmass_new
+)
 
 # --------------------------------------------------------------------------------------
 # Dycore substep leaf steps
@@ -202,7 +203,9 @@ def _compute_statistics(carry: DriverLoopState) -> None:
         )
 
 
-compute_statistics_step = named("compute_statistics_step", _compute_statistics)
+compute_statistics_step: Step[DriverLoopState] = named(
+    "compute_statistics_step", _compute_statistics
+)
 
 
 def _update_time_levels(carry: DriverLoopState) -> None:
@@ -215,7 +218,9 @@ def _update_time_levels(carry: DriverLoopState) -> None:
         diagnostic_state_nh.normal_wind_advective_tendency.swap()
 
 
-update_time_levels_step = named("update_time_levels_step", _update_time_levels)
+update_time_levels_step: Step[DriverLoopState] = named(
+    "update_time_levels_step", _update_time_levels
+)
 
 
 def _second_order_divdamp_factor(carry: DriverLoopState) -> ta.wpfloat:
@@ -295,7 +300,7 @@ def _compute_total_mass_and_energy(carry: DriverLoopState) -> None:
         log.info(f"GLOBAL TOTAL MASS: {global_total_mass:.15e} kg")
 
 
-compute_total_mass_and_energy_step = named(
+compute_total_mass_and_energy_step: Step[DriverLoopState] = named(
     "compute_total_mass_and_energy_step", _compute_total_mass_and_energy
 )
 
@@ -377,8 +382,23 @@ def build_advect_tracers_step(
     component: tracer_advection.Advection | None,
 ) -> Step[DriverLoopState]:
     """Advect every active tracer once per time step."""
+    if component is None:
+        return foreach(
+            _advect_tracer,
+            source=lambda c: c.states.tracers.current.active_fields(),
+            name="advect_tracers",
+        )
+
+    def _advect_tracer_named(carry: DriverLoopState, tracer: tracer_states.TracerField) -> None:
+        _advect_tracer(carry, tracer)
+
     return foreach(
-        _advect_tracer,
+        named(
+            "advect_tracer_leaf",
+            _advect_tracer_named,
+            component=component,
+            pass_item=True,
+        ),
         source=lambda c: c.states.tracers.current.active_fields(),
         name="advect_tracers",
     )
@@ -493,21 +513,21 @@ def _swap(carry: DriverLoopState) -> None:
     carry.states.tracers.swap()
 
 
-swap_step = named("swap_step", _swap)
+swap_step: Step[DriverLoopState] = named("swap_step", _swap)
 
 
 def _sync(carry: DriverLoopState) -> None:
     device_utils.sync(carry.services.backend)
 
 
-sync_step = named("sync_step", _sync)
+sync_step: Step[DriverLoopState] = named("sync_step", _sync)
 
 
 def _end_of_step(carry: DriverLoopState) -> None:
     carry.clock.is_first_step_in_simulation = False
 
 
-end_of_step_step = named("end_of_step_step", _end_of_step)
+end_of_step_step: Step[DriverLoopState] = named("end_of_step_step", _end_of_step)
 
 
 def _adjust_ndyn(carry: DriverLoopState) -> None:
@@ -594,8 +614,7 @@ def _adjust_ndyn(carry: DriverLoopState) -> None:
     )
 
 
-adjust_ndyn_step = named("adjust_ndyn_step", _adjust_ndyn)
-
+adjust_ndyn_step: Step[DriverLoopState] = named("adjust_ndyn_step", _adjust_ndyn)
 
 # --------------------------------------------------------------------------------------
 # Finalization
@@ -621,7 +640,9 @@ def _compute_mean_at_final(carry: DriverLoopState) -> None:
         )
 
 
-compute_mean_at_final_step = named("compute_mean_at_final_step", _compute_mean_at_final)
+compute_mean_at_final_step: Step[DriverLoopState] = named(
+    "compute_mean_at_final_step", _compute_mean_at_final
+)
 
 
 def _finalize(carry: DriverLoopState) -> None:
@@ -635,4 +656,4 @@ def _finalize(carry: DriverLoopState) -> None:
         gtx_metrics.dump_json(profiling_options.gt4py_metrics_output_file)
 
 
-finalize_step = named("finalize_step", _finalize)
+finalize_step: Step[DriverLoopState] = named("finalize_step", _finalize)

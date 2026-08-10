@@ -15,6 +15,7 @@ from icon4py.model.standalone_driver.steps import (
     _diffusion,
     _physics,
     _solve_nh,
+    _update_derived_quantities,
     adjust_ndyn_step,
     advance_clock_step,
     compute_airmass_new_step,
@@ -73,6 +74,8 @@ def run_time_integration_plain(carry: DriverLoopState) -> None:  # noqa: PLR0912
 
             if carry.granules.physics is not None:
                 _physics(carry)
+
+            _update_derived_quantities(carry, carry.services.derived_quantities)
 
             swap_step(carry)
             sync_step(carry)

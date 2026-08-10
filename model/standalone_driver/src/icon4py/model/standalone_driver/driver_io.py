@@ -18,6 +18,7 @@ Driver-side glue between the model state and the ``icon4py.model.common.io`` mod
   (:func:`create_io_monitor`).
 """
 
+import dataclasses
 import datetime
 import pathlib
 import uuid
@@ -33,7 +34,13 @@ from icon4py.model.common.diagnostic_calculations.stencils import diagnose_tempe
 from icon4py.model.common.grid import base as grid_base, horizontal as h_grid, vertical as v_grid
 from icon4py.model.common.interpolation.stencils import edge_2_cell_vector_rbf_interpolation as rbf
 from icon4py.model.common.io import io as common_io, utils as io_utils
-from icon4py.model.common.states import data as state_data, prognostic_state as prognostics
+from icon4py.model.common.states import (
+    data as state_data,
+    diagnostic_state as diagnostics,
+    prognostic_state as prognostics,
+    spec as field_spec,
+    tracer_states as tracers,
+)
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -100,7 +107,60 @@ DIAGNOSTIC_VARIABLES: Final[list[str]] = [
 ]
 
 #: All output variables (prognostic + diagnostic), written together into the same file.
-DEFAULT_OUTPUT_VARIABLES: Final[list[str]] = [*PROGNOSTIC_VARIABLES, *DIAGNOSTIC_VARIABLES]
+#: Kept as a module constant for backward compatibility; the canonical value is
+#: computed by ``output_variables()`` from the declared labels.
+_DEFAULT_OUTPUT_VARIABLES_CACHED: Final[list[str]] = [*PROGNOSTIC_VARIABLES, *DIAGNOSTIC_VARIABLES]
+
+
+def _quantities_with_label(cls: type[Any], label: str) -> list[str]:
+    """Return canonical quantity names of fields on ``cls`` carrying ``label``."""
+    return [
+        field_spec.quantity
+        for field_spec in (field_spec.get_field_spec(f) for f in dataclasses.fields(cls))
+        if field_spec is not None and label in field_spec.labels
+    ]
+
+
+_STANDARD_NAME_TO_CF_KEY: Final[dict[str, str]] = {
+    meta.get("standard_name", key): key
+    for catalog in (
+        state_data.PROGNOSTIC_CF_ATTRIBUTES,
+        state_data.COMMON_TRACER_CF_ATTRIBUTES,
+        state_data.DIAGNOSTIC_CF_ATTRIBUTES,
+    )
+    for key, meta in catalog.items()
+}
+
+
+def output_variables() -> list[str]:
+    """Return the CF variable names of all fields labeled ``output``.
+
+    Replaces the hand-picked ``PROGNOSTIC_VARIABLES`` / ``DIAGNOSTIC_VARIABLES``
+    lists with a query over the declarations.
+    """
+    quantities = [
+        *_quantities_with_label(prognostics.PrognosticState, "output"),
+        *_quantities_with_label(diagnostics.DiagnosticState, "output"),
+    ]
+    return sorted(_STANDARD_NAME_TO_CF_KEY[q] for q in quantities)
+
+
+#: All output variables (prognostic + diagnostic), written together into the same file.
+DEFAULT_OUTPUT_VARIABLES: Final[list[str]] = output_variables()
+
+
+def restart_variables() -> list[str]:
+    """Return the canonical quantity names of all fields labeled ``restart``.
+
+    The checkpoint workstream consumes these declarations. The list mixes
+    prognostic fields, tracer fields, and the half-level pressure field.
+    """
+    quantities = [
+        *_quantities_with_label(prognostics.PrognosticState, "restart"),
+        *_quantities_with_label(tracers.TracerState, "restart"),
+        *_quantities_with_label(diagnostics.DiagnosticState, "restart"),
+    ]
+    return sorted(quantities)
 
 
 class DiagnosticsComputer:
@@ -271,13 +331,12 @@ def create_io_monitor(
     signature change.
     """
     del process_props  # reserved for the distributed IO path; unused while single-node
-    output_variables = DEFAULT_OUTPUT_VARIABLES if variables is None else variables
-
+    monitor_variables = output_variables() if variables is None else variables
     field_groups = [
         common_io.FieldGroupIOConfig(
             output_interval=output_interval,
             filename=DEFAULT_OUTPUT_FILENAME,
-            variables=output_variables,
+            variables=monitor_variables,
             nc_title="ICON4Py output",
             nc_comment="Fields computed by ICON4Py.",
         )

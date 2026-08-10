@@ -48,7 +48,7 @@ class DiagnosticState:
         dims=q.AIR_PRESSURE_ON_INTERFACE_LEVELS.dims,
         intent=spec.Intent.WRITE,
         lifetime=spec.Lifetime.PERSISTENT,
-        labels=["diagnostic", "output", "restart"],
+        labels=["diagnostic", "restart"],
     )
     #: air temperature [K] at cell center, originally defined as temp in ICON
     temperature: fa.CellKField[ta.wpfloat] = spec.spec(

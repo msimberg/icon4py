@@ -53,7 +53,7 @@ def gather_and_call_step(
         outputs = component.run(inputs)
         carry.sample_cache[process_name] = outputs
 
-    return named(f"gather_and_call:{process_name}", _gather_and_call)
+    return named(f"gather_and_call:{process_name}", _gather_and_call, component=component)
 
 
 def apply_tendencies_step(

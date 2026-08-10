@@ -227,11 +227,11 @@ def test_create_io_monitor_builds_single_field_group(
     # default cadence: capture on every model step
     assert field_group.output_interval == 1
     # a single group holding all fields, prognostic + diagnostic, in one file
-    assert list(field_group.variables) == driver_io.DEFAULT_OUTPUT_VARIABLES
-    assert list(field_group.variables) == [
-        *driver_io.PROGNOSTIC_VARIABLES,
-        *driver_io.DIAGNOSTIC_VARIABLES,
-    ]
+    assert set(field_group.variables) == set(driver_io.DEFAULT_OUTPUT_VARIABLES)
+    assert set(field_group.variables) == set(
+        [*driver_io.PROGNOSTIC_VARIABLES, *driver_io.DIAGNOSTIC_VARIABLES]
+    )
+    assert list(field_group.variables) == driver_io.output_variables()
     assert field_group.filename == driver_io.DEFAULT_OUTPUT_FILENAME
     # output is written directly into the run output directory
     assert config.output_path == str(tmp_path)
@@ -263,6 +263,33 @@ def test_create_io_monitor_has_no_separate_diagnostic_group(
     assert len(groups) == 1
     assert set(driver_io.DIAGNOSTIC_VARIABLES) <= set(groups[0].variables)
     assert set(driver_io.PROGNOSTIC_VARIABLES) <= set(groups[0].variables)
+
+
+def test_output_variables_are_derived_from_labels() -> None:
+    """The default output set is a query over the "output" label, not a hand list."""
+    assert set(driver_io.output_variables()) == set(
+        [*driver_io.PROGNOSTIC_VARIABLES, *driver_io.DIAGNOSTIC_VARIABLES]
+    )
+    assert driver_io.output_variables() == driver_io.DEFAULT_OUTPUT_VARIABLES
+
+
+def test_restart_variables_are_derived_from_labels() -> None:
+    """The restart set is a query over the "restart" label across state dataclasses."""
+    expected = {
+        "air_density",
+        "dimensionless_exner_function",
+        "normal_velocity",
+        "upward_air_velocity",
+        "virtual_potential_temperature",
+        "specific_humidity",
+        "specific_cloud_content",
+        "specific_ice_content",
+        "specific_rain_content",
+        "specific_snow_content",
+        "specific_graupel_content",
+        "air_pressure_on_interface_levels",
+    }
+    assert set(driver_io.restart_variables()) == expected
 
 
 def test_diagnostic_fields_to_dataarrays(grid: base.Grid) -> None:
@@ -316,6 +343,7 @@ def test_io_monitor_close_is_called_when_store_raises(
 
     class _FakeServices:
         io_monitor = _FakeIOMonitor()
+        derived_quantities = None
 
     class _FakeDriverConfig:
         diffuse_before_time_loop = False
@@ -350,8 +378,8 @@ def test_io_monitor_close_is_called_when_store_raises(
         driver.io_monitor = io_monitor  # type: ignore[assignment]
         driver.model_time_variables = _FakeClock()  # type: ignore[assignment]
         driver.granules = None  # type: ignore[assignment]
+        driver._derived_quantities = None  # type: ignore[assignment]
         driver._build_carry = lambda ds: fake_carry  # type: ignore[method-assign]
-
         monkeypatch.setattr(edsl_driver, "io_snapshot_step", _RaisingStep())
 
         with pytest.raises(RuntimeError, match="store failed"):

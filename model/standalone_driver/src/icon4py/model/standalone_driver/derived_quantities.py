@@ -166,7 +166,7 @@ class DerivedQuantitiesOutput:
         dims=q.AIR_PRESSURE_ON_INTERFACE_LEVELS.dims,
         intent=spec.Intent.WRITE,
         lifetime=spec.Lifetime.PERSISTENT,
-        labels=["diagnostic", "output", "restart"],
+        labels=["diagnostic", "restart"],
     )
     surface_pressure: fa.CellField[ta.wpfloat] = spec.spec(
         quantity=q.AIR_PRESSURE_AT_GROUND_LEVEL.name,

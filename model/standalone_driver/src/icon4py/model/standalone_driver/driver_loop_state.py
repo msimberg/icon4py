@@ -14,6 +14,7 @@ import dataclasses
 import datetime
 import types
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import gt4py.next as gtx
 
@@ -27,6 +28,10 @@ from icon4py.model.standalone_driver import (
     driver_states,
     driver_utils,
 )
+
+
+if TYPE_CHECKING:
+    from icon4py.model.standalone_driver.derived_quantities import DerivedQuantities
 
 
 @dataclasses.dataclass(frozen=True)
@@ -43,6 +48,7 @@ class DriverServices:
     xp: types.ModuleType
     allocator: gtx.typing.Allocator
     diagnostics_computer: driver_io.DiagnosticsComputer
+    derived_quantities: DerivedQuantities | None
     compute_airmass: Callable[..., None]
 
 

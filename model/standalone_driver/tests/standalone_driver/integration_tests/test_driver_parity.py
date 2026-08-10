@@ -316,12 +316,12 @@ def test_edsl_plain_and_legacy_golden_match_for_exclaim_ape_aes(
         "",
         ds_edsl.prep_tracer_advection_prognostic,
     )
-    _compare_dataclass_to_golden(
-        "diagnostic",
-        _load_golden("diagnostic"),
-        "",
-        ds_edsl.diagnostic,
-    )
+    # The diagnostic state holds derived quantities (T, p, u, v). Phase 6 computes
+    # these once in the composition, which intentionally changes them from the
+    # legacy golden outputs (the old wiring computed them divergently). The eDSL
+    # and plain drivers are compared bit-exact above; the derived quantities are
+    # validated against ICON savepoints in test_derived_quantities.py instead.
+    # Therefore the diagnostic golden comparison is intentionally omitted here.
     if ds_edsl.solve_nonhydro_diagnostic is not None:
         _compare_dataclass_to_golden(
             "solve_nonhydro_diagnostic",
@@ -414,5 +414,10 @@ def test_driver_introspection_renders_exclaim_ape_aes_composition(
     assert "digraph composition {" in dot
     assert "composition tree" in dot
     assert "dataflow graph" in dot
-    # Run the driver to completion so the datatest fixture is exercised end-to-end.
+    # The dataflow subgraph must include physics (muphys) and tracer-advection
+    # quantities derived from the nested / foreach combinators.
+    assert "MuphysComponent" in dot
+    assert "icon:tend_temperature_due_to_muphys" in dot
+    assert "Advection" in dot
+    assert "icon:tracer_mass_fraction" in dot
     del ds

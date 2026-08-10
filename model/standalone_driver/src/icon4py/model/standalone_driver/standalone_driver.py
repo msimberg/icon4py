@@ -157,6 +157,7 @@ class Icon4pyDriver:
                 xp=self._xp,
                 allocator=self._allocator,
                 diagnostics_computer=self._diagnostics_computer,
+                derived_quantities=self._derived_quantities,
                 compute_airmass=self._compute_airmass,
             ),
             wall_clock_starting_time=datetime.datetime.now(),
