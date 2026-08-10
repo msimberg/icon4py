@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+from collections.abc import Sequence
 from typing import Any
 
 import gt4py.next as gtx
@@ -67,6 +68,10 @@ class FieldSpec:
     #: Output role; meaningful only for fields declared on an ``OutputT``.
     role: Role | None = None
 
+    #: Declarative labels for the field (e.g. "prognostic", "diagnostic",
+    #: "output", "restart"). Used by queries that build output/restart sets.
+    labels: tuple[str, ...] = ()
+
 
 def spec(
     *,
@@ -77,6 +82,7 @@ def spec(
     lifetime: Lifetime,
     restart: bool = False,
     role: Role | None = None,
+    labels: Sequence[str] | None = None,
     default: Any = dataclasses.MISSING,
 ) -> Any:
     """Return a ``dataclasses.field`` carrying a ``FieldSpec`` in its metadata.
@@ -98,6 +104,7 @@ def spec(
         lifetime=lifetime,
         restart=restart,
         role=role,
+        labels=tuple(labels) if labels is not None else (),
     )
     metadata = {"spec": field_spec}
     if default is dataclasses.MISSING:
@@ -108,6 +115,22 @@ def spec(
 def get_field_spec(field: dataclasses.Field) -> FieldSpec | None:
     """Return the ``FieldSpec`` from a dataclass field, or ``None``."""
     return field.metadata.get("spec") if hasattr(field.metadata, "get") else None
+
+
+def field_labels(field: dataclasses.Field) -> tuple[str, ...]:
+    """Return the labels declared on a field, or an empty tuple."""
+    spec = get_field_spec(field)
+    return spec.labels if spec is not None else ()
+
+
+def has_label(field: dataclasses.Field, label: str) -> bool:
+    """Return whether ``field`` carries ``label`` in its ``spec()``."""
+    return label in field_labels(field)
+
+
+def fields_with_label(cls: type[Any], label: str) -> tuple[str, ...]:
+    """Return the names of fields on ``cls`` that carry ``label``."""
+    return tuple(f.name for f in dataclasses.fields(cls) if has_label(f, label))
 
 
 def field_spec_from_metadata(
