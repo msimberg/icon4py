@@ -420,4 +420,6 @@ def test_driver_introspection_renders_exclaim_ape_aes_composition(
     assert "icon:tend_temperature_due_to_muphys" in dot
     assert "Advection" in dot
     assert "icon:tracer_mass_fraction" in dot
+    # Per-field handoff quantities must appear, not just their container nodes.
+    assert "icon:vn_traj" in dot
     del ds

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import typing
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
@@ -104,11 +105,23 @@ def _collect_component_steps(step: Step[Any]) -> list[Step[Any]]:
 
 
 def _quantity_fields(cls: type[Any]) -> dict[str, str]:
-    """Map field name to canonical quantity name for a declared dataclass."""
+    """Map leaf field name to canonical quantity name for a declared dataclass.
+
+    Nested dataclass fields (e.g. ``prep_adv``) are flattened so their per-field
+    quantities appear as individual dataflow nodes instead of container-level
+    quantities.
+    """
     result: dict[str, str] = {}
+    try:
+        hints = typing.get_type_hints(cls)
+    except Exception:
+        hints = {}
     for field in dataclasses.fields(cls):
         spec = get_field_spec(field)
-        if spec is not None:
+        field_type = hints.get(field.name, field.type)
+        if isinstance(field_type, type) and dataclasses.is_dataclass(field_type):
+            result.update(_quantity_fields(field_type))
+        elif spec is not None:
             result[field.name] = spec.quantity
     return result
 
