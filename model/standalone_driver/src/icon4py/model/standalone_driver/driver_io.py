@@ -289,6 +289,23 @@ class DiagnosticsComputer:
         }
 
 
+def diagnostic_state_to_fields(
+    diagnostic_state: diagnostics.DiagnosticState,
+) -> dict[str, gtx.Field]:
+    """Map the canonical diagnostic state to the field dict consumed by IO.
+
+    The keys match ``DIAGNOSTIC_CF_ATTRIBUTES`` so that
+    :func:`diagnostic_fields_to_dataarrays` can annotate them for output.
+    """
+    return {
+        "eastward_wind": diagnostic_state.u,
+        "northward_wind": diagnostic_state.v,
+        "temperature": diagnostic_state.temperature,
+        "virtual_temperature": diagnostic_state.virtual_temperature,
+        "pressure": diagnostic_state.pressure,
+    }
+
+
 def diagnostic_fields_to_dataarrays(
     diagnostic_fields: dict[str, gtx.Field],
 ) -> dict[str, xr.DataArray]:

@@ -60,16 +60,19 @@ def _substep_info(carry: DriverLoopState) -> dycore_states.StepInfo:
 
 def _io_snapshot(carry: DriverLoopState) -> None:
     assert carry.services.io_monitor is not None
-    metrics = carry.services.static_field_factories.metrics
-    interpolation = carry.services.static_field_factories.interpolation
     prognostic_state = carry.states.prognostics.current
     state_to_store = driver_io.prognostic_state_to_dataarrays(prognostic_state)
-    diagnostic_fields = carry.services.diagnostics_computer.compute(
-        prognostic_state,
-        ddqz_z_full=metrics.get(metrics_attr.DDQZ_Z_FULL),
-        rbf_vec_coeff_c1=interpolation.get(intp_attr.RBF_VEC_COEFF_C1),
-        rbf_vec_coeff_c2=interpolation.get(intp_attr.RBF_VEC_COEFF_C2),
-    )
+    if carry.services.derived_quantities is not None:
+        diagnostic_fields = driver_io.diagnostic_state_to_fields(carry.states.diagnostic)
+    else:
+        metrics = carry.services.static_field_factories.metrics
+        interpolation = carry.services.static_field_factories.interpolation
+        diagnostic_fields = carry.services.diagnostics_computer.compute(
+            prognostic_state,
+            ddqz_z_full=metrics.get(metrics_attr.DDQZ_Z_FULL),
+            rbf_vec_coeff_c1=interpolation.get(intp_attr.RBF_VEC_COEFF_C1),
+            rbf_vec_coeff_c2=interpolation.get(intp_attr.RBF_VEC_COEFF_C2),
+        )
     state_to_store.update(driver_io.diagnostic_fields_to_dataarrays(diagnostic_fields))
     carry.services.io_monitor.store(state_to_store, carry.clock.simulation_current_datetime)
 
