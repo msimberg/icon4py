@@ -19,7 +19,7 @@ from gt4py.next import config as gtx_config
 from gt4py.next.instrumentation import metrics as gtx_metrics
 
 from icon4py.model.atmosphere.diffusion import diffusion
-from icon4py.model.atmosphere.dycore import dycore_states
+from icon4py.model.atmosphere.dycore import dycore_states, solve_nonhydro
 from icon4py.model.atmosphere.tracer_advection import tracer_advection
 from icon4py.model.common import type_alias as ta
 from icon4py.model.common.composition import Step, SwapPolicy, chain, foreach, repeat
@@ -29,15 +29,15 @@ from icon4py.model.common.metrics import metrics_attributes as metrics_attr
 from icon4py.model.common.states import tracer_states
 from icon4py.model.common.utils import data_allocation as data_alloc, device_utils
 from icon4py.model.standalone_driver import driver_constants, driver_io, driver_states, driver_utils
-from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState, StepInfo
+from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 
 
 log = logging.getLogger(__name__)
 
 
-def _substep_info(carry: DriverLoopState) -> StepInfo:
+def _substep_info(carry: DriverLoopState) -> dycore_states.StepInfo:
     """Build the per-substep context from the carry's loop index and clock."""
-    return StepInfo(
+    return dycore_states.StepInfo(
         substep_index=carry.substep_index,
         at_first_substep=carry.substep_index == 0,
         at_last_substep=carry.substep_index == carry.substep_total - 1,
@@ -258,17 +258,21 @@ def _solve_nh(carry: DriverLoopState) -> None:
     )
     timer_solve_nh = carry.services.timer_collection.timers[timer_name]
     with timer_solve_nh:
-        carry.granules.solve_nonhydro.time_step(
-            diagnostic_state_nh=carry.states.solve_nonhydro_diagnostic,
-            prognostic_states=carry.states.prognostics,
-            prep_adv=carry.states.prep_advection_prognostic,
-            second_order_divdamp_factor=_second_order_divdamp_factor(carry),
-            dtime=carry.clock.substep_timestep,
-            ndyn_substeps_var=carry.clock.ndyn_substeps_var,
-            at_initial_timestep=step_info.at_initial_timestep,
-            lprep_adv=carry.config.driver.do_prep_adv,
-            at_first_substep=step_info.at_first_substep,
-            at_last_substep=step_info.at_last_substep,
+        carry.granules.solve_nonhydro.run(
+            solve_nonhydro.SolveNonHydroInput(
+                diagnostic_state_nh=carry.states.solve_nonhydro_diagnostic,
+                prognostic_states=carry.states.prognostics,
+                prep_adv=carry.states.prep_advection_prognostic,
+                second_order_divdamp_factor=_second_order_divdamp_factor(carry),
+                dtime=carry.clock.substep_timestep,
+                ndyn_substeps_var=carry.clock.ndyn_substeps_var,
+                step_info=step_info,
+                dycore_control=dycore_states.DycoreControl(
+                    lprep_adv=carry.config.driver.do_prep_adv,
+                    is_iau_active=False,
+                    iau_wgt_dyn=0.0,
+                ),
+            )
         )
 
 

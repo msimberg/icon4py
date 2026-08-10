@@ -321,18 +321,32 @@ def test_benchmark_solve_nonhydro(  # noqa: PLR0917 [too-many-positional-argumen
 
     prognostic_states = common_utils.TimeStepPair(prognostic_state_nnow, prognostic_state_nnew)
 
-    solve_nonhydro_timestep_variants = functools.partial(
-        solve_nonhydro.time_step,
-        diagnostic_state_nh=diagnostic_state_nh,
-        prognostic_states=prognostic_states,
-        prep_adv=prep_adv,
-        second_order_divdamp_factor=second_order_divdamp_factor,
-        dtime=dtime,
-        ndyn_substeps_var=ndyn_substeps,
-        at_initial_timestep=at_initial_timestep,
-        lprep_adv=lprep_adv,
-    )
+    def _run_solve_nonhydro(at_first_substep: bool, at_last_substep: bool) -> None:
+        solve_nonhydro.run(
+            solve_nh.SolveNonHydroInput(
+                diagnostic_state_nh=diagnostic_state_nh,
+                prognostic_states=prognostic_states,
+                prep_adv=prep_adv,
+                second_order_divdamp_factor=second_order_divdamp_factor,
+                dtime=dtime,
+                ndyn_substeps_var=ndyn_substeps,
+                step_info=dycore_states.StepInfo(
+                    substep_index=0,
+                    at_first_substep=at_first_substep,
+                    at_last_substep=at_last_substep,
+                    at_initial_timestep=at_initial_timestep,
+                ),
+                dycore_control=dycore_states.DycoreControl(
+                    lprep_adv=lprep_adv,
+                    is_iau_active=False,
+                    iau_wgt_dyn=0.0,
+                ),
+            )
+        )
 
+    solve_nonhydro_timestep_variants = functools.partial(
+        _run_solve_nonhydro,
+    )
     benchmark(
         solve_nonhydro_timestep_variants,
         at_first_substep=at_first_substep,

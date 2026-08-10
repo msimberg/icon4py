@@ -19,6 +19,7 @@ import numpy.typing as npt
 import pytest
 
 from icon4py.model.common import model_options
+from icon4py.model.common.components.components import Component
 from icon4py.model.testing import config
 
 
@@ -167,3 +168,21 @@ def is_dace(backend: gtx_typing.Backend | None) -> bool:
 
 def is_gtfn_backend(backend: gtx_typing.Backend | None) -> bool:
     return "gtfn" in backend.name if backend else False
+
+
+def assert_component_leaves_fields_unchanged[InputT, OutputT](
+    component: Component[InputT, OutputT],
+    input_state: InputT,
+    field_names: tuple[str, ...],
+) -> None:
+    """Run ``component`` and assert the named input fields are unchanged.
+
+    This encodes ADR 0001: physics components return tendencies and must not
+    mutate the prognostic fields they read. The snapshot is taken before
+    ``run`` and compared bit-identically against the same fields after.
+    """
+    before = {name: np.asarray(getattr(input_state, name).asnumpy()).copy() for name in field_names}
+    component.run(input_state)
+    for name in field_names:
+        after = np.asarray(getattr(input_state, name).asnumpy())
+        assert_dallclose(after, before[name], rtol=0.0, atol=0.0)

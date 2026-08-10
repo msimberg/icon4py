@@ -47,15 +47,6 @@ class DriverServices:
 
 
 @dataclasses.dataclass
-class StepInfo:
-    """Per-dycore-substep context used by the substep leaf steps."""
-
-    substep_index: int
-    at_first_substep: bool
-    at_last_substep: bool
-    at_initial_timestep: bool
-
-
 @dataclasses.dataclass
 class DriverLoopState:
     """Mutable carry object for the time-integration composition."""

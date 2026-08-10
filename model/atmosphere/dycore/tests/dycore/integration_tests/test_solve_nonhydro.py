@@ -710,19 +710,26 @@ def test_run_solve_nonhydro_single_step(  # noqa: PLR0917 [too-many-positional-a
     prognostic_states = utils.create_prognostic_states(sp)
 
     second_order_divdamp_factor = sp.divdamp_fac_o2()
-    solve_nonhydro.time_step(
-        diagnostic_state_nh=diagnostic_state_nh,
-        prognostic_states=prognostic_states,
-        prep_adv=prep_adv,
-        second_order_divdamp_factor=second_order_divdamp_factor,
-        dtime=dtime,
-        ndyn_substeps_var=experiment.config.diffusion.ndyn_substeps,
-        at_initial_timestep=at_initial_timestep,
-        lprep_adv=lprep_adv,
-        at_first_substep=substep_init == 1,
-        at_last_substep=substep_init == experiment.config.diffusion.ndyn_substeps,
-        is_iau_active=is_iau_active,
-        iau_wgt_dyn=iau_wgt_dyn,
+    solve_nonhydro.run(
+        solve_nh.SolveNonHydroInput(
+            diagnostic_state_nh=diagnostic_state_nh,
+            prognostic_states=prognostic_states,
+            prep_adv=prep_adv,
+            second_order_divdamp_factor=second_order_divdamp_factor,
+            dtime=dtime,
+            ndyn_substeps_var=experiment.config.diffusion.ndyn_substeps,
+            step_info=dycore_states.StepInfo(
+                substep_index=substep_init - 1,
+                at_first_substep=substep_init == 1,
+                at_last_substep=substep_init == experiment.config.diffusion.ndyn_substeps,
+                at_initial_timestep=at_initial_timestep,
+            ),
+            dycore_control=dycore_states.DycoreControl(
+                lprep_adv=lprep_adv,
+                is_iau_active=is_iau_active,
+                iau_wgt_dyn=iau_wgt_dyn,
+            ),
+        )
     )
     prognostic_state_nnew = prognostic_states.next
     assert test_utils.dallclose(
@@ -841,19 +848,26 @@ def test_run_solve_nonhydro_multi_step(  # noqa: PLR0917 [too-many-positional-ar
         if not at_first_substep:
             diagnostic_state_nh.normal_wind_advective_tendency.swap()
 
-        solve_nonhydro.time_step(
-            diagnostic_state_nh=diagnostic_state_nh,
-            prognostic_states=prognostic_states,
-            prep_adv=prep_adv,
-            second_order_divdamp_factor=sp.divdamp_fac_o2(),
-            dtime=dtime,
-            ndyn_substeps_var=experiment.config.diffusion.ndyn_substeps,
-            at_initial_timestep=at_initial_timestep,
-            lprep_adv=lprep_adv,
-            at_first_substep=at_first_substep,
-            at_last_substep=at_last_substep,
-            is_iau_active=is_iau_active,
-            iau_wgt_dyn=iau_wgt_dyn,
+        solve_nonhydro.run(
+            solve_nh.SolveNonHydroInput(
+                diagnostic_state_nh=diagnostic_state_nh,
+                prognostic_states=prognostic_states,
+                prep_adv=prep_adv,
+                second_order_divdamp_factor=sp.divdamp_fac_o2(),
+                dtime=dtime,
+                ndyn_substeps_var=experiment.config.diffusion.ndyn_substeps,
+                step_info=dycore_states.StepInfo(
+                    substep_index=i_substep,
+                    at_first_substep=at_first_substep,
+                    at_last_substep=at_last_substep,
+                    at_initial_timestep=at_initial_timestep,
+                ),
+                dycore_control=dycore_states.DycoreControl(
+                    lprep_adv=lprep_adv,
+                    is_iau_active=is_iau_active,
+                    iau_wgt_dyn=iau_wgt_dyn,
+                ),
+            )
         )
 
         if not at_last_substep:

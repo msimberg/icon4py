@@ -86,6 +86,11 @@ def test_granule_matches_direct_muphys(
         qi=graupel_input.qi,
         qg=graupel_input.qg,
     )
+    test_utils.assert_component_leaves_fields_unchanged(
+        granule,
+        inputs,
+        ("te", "qv", "qc", "qr", "qs", "qi", "qg", "p", "rho", "dz"),
+    )
     out = granule.run(inputs)
     direct = common.GraupelOutput.allocate(
         allocator=allocator,

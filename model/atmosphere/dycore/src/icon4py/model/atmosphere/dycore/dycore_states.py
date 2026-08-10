@@ -497,6 +497,25 @@ class MetricStateNonHydro:
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class StepInfo:
+    """Per-dycore-substep context used by the substep leaf steps."""
+
+    substep_index: int
+    at_first_substep: bool
+    at_last_substep: bool
+    at_initial_timestep: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class DycoreControl:
+    """Dycore control flags passed to SolveNonhydro as a structured field."""
+
+    lprep_adv: bool
+    is_iau_active: bool
+    iau_wgt_dyn: float
+
+
 @dataclasses.dataclass
 class PrepAdvection:
     """Dataclass used in SolveNonHydro that pre-calculates fields during the dynamical substepping that are later needed in tracer advection."""

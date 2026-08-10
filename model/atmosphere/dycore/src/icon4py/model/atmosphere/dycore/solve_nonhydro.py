@@ -56,6 +56,7 @@ from icon4py.model.common import (
     model_backends,
     type_alias as ta,
 )
+from icon4py.model.common.components.components import Component
 from icon4py.model.common.config import options as common_conf_opt
 from icon4py.model.common.decomposition import definitions as decomposition
 from icon4py.model.common.grid import (
@@ -66,7 +67,7 @@ from icon4py.model.common.grid import (
 )
 from icon4py.model.common.math import smagorinsky
 from icon4py.model.common.model_options import setup_program
-from icon4py.model.common.states import nonhydro_states, prognostic_state as prognostics
+from icon4py.model.common.states import nonhydro_states, prognostic_state as prognostics, spec
 from icon4py.model.common.utils import data_allocation as data_alloc
 
 
@@ -469,7 +470,103 @@ class NonHydrostaticParams:
         """
 
 
-class SolveNonhydro:
+@dataclasses.dataclass(frozen=True)
+class SolveNonHydroInput:
+    """Input boundary of the non-hydrostatic solver component."""
+
+    diagnostic_state_nh: nonhydro_states.DiagnosticStateNonHydro = spec.spec(
+        quantity="icon:diagnostic_state_non_hydro",
+        units="",
+        dims=(),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    prognostic_states: common_utils.TimeStepPair[prognostics.PrognosticState] = spec.spec(
+        quantity="prognostic_states",
+        units="",
+        dims=(),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    prep_adv: dycore_states.PrepAdvection = spec.spec(
+        quantity="icon:prep_advection",
+        units="",
+        dims=(),
+        intent=spec.Intent.READWRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+    )
+    second_order_divdamp_factor: float = spec.spec(
+        quantity="icon:second_order_divdamp_factor",
+        units="",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+    dtime: float = spec.spec(
+        quantity="time_step",
+        units="s",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+    ndyn_substeps_var: int = spec.spec(
+        quantity="ndyn_substeps_var",
+        units="",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+    step_info: dycore_states.StepInfo = spec.spec(
+        quantity="icon:step_info",
+        units="",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+    dycore_control: dycore_states.DycoreControl = spec.spec(
+        quantity="icon:dycore_control",
+        units="",
+        dims=(),
+        intent=spec.Intent.READ,
+        lifetime=spec.Lifetime.SCRATCH,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class SolveNonHydroOutput:
+    """Output boundary of the non-hydrostatic solver component.
+
+    The solver mutates its input diagnostic, prognostic, and prep-advection
+    buffers in place.
+    """
+
+    diagnostic_state_nh: nonhydro_states.DiagnosticStateNonHydro = spec.spec(
+        quantity="icon:diagnostic_state_non_hydro",
+        units="",
+        dims=(),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        role=spec.Role.IN_PLACE,
+    )
+    prognostic_states: common_utils.TimeStepPair[prognostics.PrognosticState] = spec.spec(
+        quantity="prognostic_states",
+        units="",
+        dims=(),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        role=spec.Role.IN_PLACE,
+    )
+    prep_adv: dycore_states.PrepAdvection = spec.spec(
+        quantity="icon:prep_advection",
+        units="",
+        dims=(),
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        role=spec.Role.IN_PLACE,
+    )
+
+
+class SolveNonhydro(Component[SolveNonHydroInput, SolveNonHydroOutput]):
     def __init__(
         self,
         *,
@@ -921,6 +1018,14 @@ class SolveNonhydro:
         recomputed or not. The substep length should only change in case of high CFL condition.
         """
 
+    @classmethod
+    def input_type(cls) -> type[SolveNonHydroInput]:
+        return SolveNonHydroInput
+
+    @classmethod
+    def output_type(cls) -> type[SolveNonHydroOutput]:
+        return SolveNonHydroOutput
+
     def _allocate_local_fields(self, allocator: gtx_typing.Allocator | None) -> None:
         self.temporal_extrapolation_of_perturbed_exner = data_alloc.zero_field(
             self._grid,
@@ -1084,22 +1189,7 @@ class SolveNonhydro:
             self._dtime_previous_substep = dtime
         return self.rayleigh_damping_factor
 
-    def time_step(
-        self,
-        *,
-        diagnostic_state_nh: nonhydro_states.DiagnosticStateNonHydro,
-        prognostic_states: common_utils.TimeStepPair[prognostics.PrognosticState],
-        prep_adv: dycore_states.PrepAdvection,
-        second_order_divdamp_factor: float,
-        dtime: float,
-        ndyn_substeps_var: int,
-        at_initial_timestep: bool,
-        lprep_adv: bool,
-        at_first_substep: bool,
-        at_last_substep: bool,
-        is_iau_active: bool = False,
-        iau_wgt_dyn: float = 0.0,
-    ) -> None:
+    def run(self, state: SolveNonHydroInput) -> SolveNonHydroOutput:
         """
         Update prognostic variables (prognostic_states.next) after the dynamical process over one substep.
         Args:
@@ -1116,6 +1206,19 @@ class SolveNonhydro:
             is_iau_active: Incremental analysis update active during dycore step
             iau_wgt_dyn: weight scalar for the incremental analysis update
         """
+        diagnostic_state_nh = state.diagnostic_state_nh
+        prognostic_states = state.prognostic_states
+        prep_adv = state.prep_adv
+        second_order_divdamp_factor = state.second_order_divdamp_factor
+        dtime = state.dtime
+        ndyn_substeps_var = state.ndyn_substeps_var
+        at_initial_timestep = state.step_info.at_initial_timestep
+        lprep_adv = state.dycore_control.lprep_adv
+        at_first_substep = state.step_info.at_first_substep
+        at_last_substep = state.step_info.at_last_substep
+        is_iau_active = state.dycore_control.is_iau_active
+        iau_wgt_dyn = state.dycore_control.iau_wgt_dyn
+
         log.info(
             f"running timestep: dtime = {dtime}, initial_timestep = {at_initial_timestep}, first_substep = {at_first_substep}, last_substep = {at_last_substep}, prep_adv = {lprep_adv}"
         )
@@ -1166,6 +1269,12 @@ class SolveNonhydro:
             theta_v_new=prognostic_states.next.theta_v,
             exner_now=prognostic_states.current.exner,
             exner_new=prognostic_states.next.exner,
+        )
+
+        return SolveNonHydroOutput(
+            diagnostic_state_nh=diagnostic_state_nh,
+            prognostic_states=prognostic_states,
+            prep_adv=prep_adv,
         )
 
     def run_predictor_step(

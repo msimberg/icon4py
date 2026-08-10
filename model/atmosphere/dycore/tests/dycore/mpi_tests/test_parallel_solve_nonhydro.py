@@ -140,22 +140,29 @@ def test_run_solve_nonhydro_single_step(  # noqa: PLR0917 [too-many-positional-a
     )
 
     _log.info(
-        f"rank={process_props.rank}/{process_props.comm_size}:  entering : solve_nonhydro.time_step"
+        f"rank={process_props.rank}/{process_props.comm_size}:  entering : solve_nonhydro.run"
     )
 
-    solve_nonhydro.time_step(
-        diagnostic_state_nh=diagnostic_state_nh,
-        prognostic_states=prognostic_states,
-        prep_adv=prep_adv,
-        second_order_divdamp_factor=second_order_divdamp_factor,
-        dtime=dtime,
-        ndyn_substeps_var=experiment.config.driver.ndyn_substeps,
-        at_initial_timestep=at_initial_timestep,
-        lprep_adv=lprep_adv,
-        at_first_substep=(substep_init == 1),
-        at_last_substep=(substep_init == experiment.config.driver.ndyn_substeps),
-        is_iau_active=is_iau_active,
-        iau_wgt_dyn=iau_wgt_dyn,
+    solve_nonhydro.run(
+        nh.SolveNonHydroInput(
+            diagnostic_state_nh=diagnostic_state_nh,
+            prognostic_states=prognostic_states,
+            prep_adv=prep_adv,
+            second_order_divdamp_factor=second_order_divdamp_factor,
+            dtime=dtime,
+            ndyn_substeps_var=experiment.config.driver.ndyn_substeps,
+            step_info=dycore_states.StepInfo(
+                substep_index=substep_init - 1,
+                at_first_substep=(substep_init == 1),
+                at_last_substep=(substep_init == experiment.config.driver.ndyn_substeps),
+                at_initial_timestep=at_initial_timestep,
+            ),
+            dycore_control=dycore_states.DycoreControl(
+                lprep_adv=lprep_adv,
+                is_iau_active=is_iau_active,
+                iau_wgt_dyn=iau_wgt_dyn,
+            ),
+        )
     )
     _log.info(f"rank={process_props.rank}/{process_props.comm_size}: dycore step run ")
 

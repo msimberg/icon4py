@@ -7,6 +7,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -16,6 +17,7 @@ from icon4py.model.atmosphere.subgrid_scale_physics.microphysics import (
 )
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.grid import vertical as v_grid
+from icon4py.model.common.states import validation
 from icon4py.model.common.utils import data_allocation as data_alloc
 from icon4py.model.testing import definitions as test_defs, test_utils
 
@@ -87,18 +89,22 @@ def test_saturation_adjustement(
     temperature = satad_init.temperature()
 
     # run saturation adjustment
-    saturation_adjustment.run(
-        satad.SaturationAdjustmentInput(
-            dtime=dtime,
-            rho=rho,
-            temperature=temperature,
-            qv=qv,
-            qc=qc,
-            temperature_tendency=temperature_tendency,
-            qv_tendency=qv_tendency,
-            qc_tendency=qc_tendency,
-        )
+    input_state = satad.SaturationAdjustmentInput(
+        dtime=dtime,
+        rho=rho,
+        temperature=temperature,
+        qv=qv,
+        qc=qc,
+        temperature_tendency=temperature_tendency,
+        qv_tendency=qv_tendency,
+        qc_tendency=qc_tendency,
     )
+    test_utils.assert_component_leaves_fields_unchanged(
+        saturation_adjustment,
+        input_state,
+        ("temperature", "qv", "qc", "rho"),
+    )
+
     updated_qv = qv.asnumpy() + qv_tendency.asnumpy() * dtime
     updated_qc = qc.asnumpy() + qc_tendency.asnumpy() * dtime
     updated_temperature = temperature.asnumpy() + temperature_tendency.asnumpy() * dtime
@@ -117,4 +123,16 @@ def test_saturation_adjustement(
         updated_temperature,
         satad_exit.temperature().asnumpy(),
         atol=1.0e-13,
+    )
+
+
+def test_saturation_adjustment_input_field_coverage() -> None:
+    """The integration test must construct ``SaturationAdjustmentInput`` with all declared fields."""
+    source_path = Path(__file__)
+    call_sites = validation.read_kwargs_at_constructor_calls(
+        source_path, "test_saturation_adjustement", (satad.SaturationAdjustmentInput,)
+    )
+    kwargs = call_sites.get(satad.SaturationAdjustmentInput.__name__, set())
+    validation.assert_field_coverage(
+        satad.SaturationAdjustmentInput, {name: None for name in kwargs}
     )

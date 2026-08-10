@@ -22,11 +22,7 @@ from icon4py.model.common.grid import base, simple
 from icon4py.model.common.states import validation
 from icon4py.model.common.utils import data_allocation as data_alloc
 from icon4py.model.standalone_driver import config as driver_config, driver_states
-from icon4py.model.standalone_driver.driver_loop_state import (
-    DriverLoopState,
-    DriverServices,
-    StepInfo,
-)
+from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState, DriverServices
 
 
 @pytest.fixture
@@ -82,7 +78,7 @@ def test_prep_tracer_advection_without_dycore_falls_back_to_zero_fields(
 
 
 def test_step_info_flags() -> None:
-    info = StepInfo(
+    info = dycore_states.StepInfo(
         substep_index=2,
         at_first_substep=False,
         at_last_substep=True,
@@ -115,7 +111,7 @@ def test_driver_loop_state_begin_time_step_sets_index() -> None:
     assert carry.time_step_index == 3
 
 
-def test_driver_loop_state_begin_substep_builds_step_info() -> None:
+def test_driver_loop_state_begin_substep_sets_index_and_total() -> None:
     config = driver_config.DriverConfig.make_initial(
         experiment_name="test",
         start_of_simulation=datetime.datetime(2024, 1, 1),
@@ -133,19 +129,29 @@ def test_driver_loop_state_begin_substep_builds_step_info() -> None:
         wall_clock_starting_time=datetime.datetime.now(),
     )
     carry.begin_substep(0, 4)
-    assert carry.step_info is not None
-    assert carry.step_info.substep_index == 0
-    assert carry.step_info.at_first_substep is True
-    assert carry.step_info.at_last_substep is False
-    assert carry.step_info.at_initial_timestep is True
+    assert carry.substep_index == 0
+    assert carry.substep_total == 4
+    assert dycore_states.StepInfo(
+        substep_index=carry.substep_index,
+        at_first_substep=carry.substep_index == 0,
+        at_last_substep=carry.substep_index == carry.substep_total - 1,
+        at_initial_timestep=carry.clock.is_first_step_in_simulation,
+    ) == dycore_states.StepInfo(
+        substep_index=0, at_first_substep=True, at_last_substep=False, at_initial_timestep=True
+    )
 
     carry.clock.is_first_step_in_simulation = False
     carry.begin_substep(3, 4)
-    assert carry.step_info is not None
-    assert carry.step_info.substep_index == 3
-    assert carry.step_info.at_first_substep is False
-    assert carry.step_info.at_last_substep is True
-    assert carry.step_info.at_initial_timestep is False
+    assert carry.substep_index == 3
+    assert carry.substep_total == 4
+    assert dycore_states.StepInfo(
+        substep_index=carry.substep_index,
+        at_first_substep=carry.substep_index == 0,
+        at_last_substep=carry.substep_index == carry.substep_total - 1,
+        at_initial_timestep=carry.clock.is_first_step_in_simulation,
+    ) == dycore_states.StepInfo(
+        substep_index=3, at_first_substep=False, at_last_substep=True, at_initial_timestep=False
+    )
 
 
 def test_prep_advection_field_coverage(grid: base.Grid) -> None:
