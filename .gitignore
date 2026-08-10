@@ -1,7 +1,7 @@
 # nvidia
 *.ncu-rep
-
-
+# pytest MPI rank logs
+pytest-log-rank-*.txt
 ### Custom ####
 _build
 _local
