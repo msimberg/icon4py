@@ -59,17 +59,16 @@ class ProcessTimeControl:
         ``interval``. With a discrete timestep that is observed only when
         ``interval`` is a positive integer multiple of ``dtime`` -- otherwise the
         process fires only at common multiples of both (or never), silently.
+
+        This validation runs for every process, enabled or disabled, so a
+        disabled process with a non-positive interval is caught at construction
+        rather than deferred to the first run.
         """
-        if not self.enable_process:
-            return
         if self.interval <= datetime.timedelta(0):
-            raise ValueError(
-                f"time-control interval must be positive for an enabled process, "
-                f"got {self.interval}"
-            )
-        if self.interval % dtime != datetime.timedelta(0):
+            raise ValueError(f"time-control interval must be positive, got {self.interval}")
+        if self.enable_process and self.interval % dtime != datetime.timedelta(0):
             raise ValueError(
                 f"time-control interval {self.interval} is not an integer multiple of "
                 f"the model timestep {dtime}: the process would fire only at common "
-                "multiples of both (or never)"
+                f"multiples of both (or never)"
             )

@@ -217,16 +217,15 @@ class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
             qg=qg,
         )
 
-    def scatter_to_prognostic(
+    def apply_tendencies(
         self,
         outputs: MuphysOutput,
         dtime: datetime.timedelta,
     ) -> None:
         """Apply muphys output tendencies back to the prognostic state.
 
-        Moisture tendencies are applied to the tracers, the temperature tendency
-        drives an exner/theta_v update via the exact EOS, and precip outputs are
-        stored as diagnostics.
+        Moisture tendencies are applied to the tracers, and the temperature
+        tendency drives an exner/theta_v update via the exact EOS.
         """
         assert self._prognostic is not None, "gather_from_prognostic must be called first"
         assert self._tracers is not None, "gather_from_prognostic must be called first"
@@ -275,12 +274,18 @@ class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
             theta_v=self._prognostic.theta_v,
         )
 
-        # 3. Store precip diagnostics.
+    def store_diagnostics(
+        self,
+        outputs: MuphysOutput,
+    ) -> None:
+        """Store muphys precip diagnostics without touching the prognostic state."""
         self._last_outputs = outputs
 
     @property
     def precip_diagnostics(self) -> dict[str, fa.CellKField[ta.wpfloat]]:
         """muphys precip diagnostics keyed by name, ready for IO / plotting."""
         if self._last_outputs is None:
-            raise RuntimeError("precip_diagnostics accessed before scatter_to_prognostic")
+            raise RuntimeError(
+                "precip_diagnostics accessed before apply_tendencies or store_diagnostics"
+            )
         return {name: getattr(self._last_outputs, name) for name in PRECIP_DIAGNOSTICS}

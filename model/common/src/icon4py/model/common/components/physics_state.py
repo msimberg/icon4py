@@ -26,8 +26,10 @@ class TypedPhysicsState(Protocol[InputT_co, OutputT_contra]):
 
     The adapter declares exactly the prognostic and tracer fields it reads
     (``gather_from_prognostic``) and how the component's outputs are applied
-    back to the prognostic state (``scatter_to_prognostic``) by inspecting the
-    ``role`` declared on each output field.
+    back to the prognostic state. ``apply_tendencies`` applies the
+    ``role="tendency"`` outputs; ``store_diagnostics`` writes the
+    ``role="diagnostic"`` outputs. The two operations are separated so the
+    per-process forcing mode can select between them.
     """
 
     def gather_from_prognostic(
@@ -36,8 +38,13 @@ class TypedPhysicsState(Protocol[InputT_co, OutputT_contra]):
         tracers: tracer_states.TracerState,
     ) -> InputT_co: ...
 
-    def scatter_to_prognostic(
+    def apply_tendencies(
         self,
         outputs: OutputT_contra,
         dtime: datetime.timedelta,
+    ) -> None: ...
+
+    def store_diagnostics(
+        self,
+        outputs: OutputT_contra,
     ) -> None: ...

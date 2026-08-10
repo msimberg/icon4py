@@ -12,29 +12,18 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-import enum
-from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from icon4py.model.common.components.components import Component
 from icon4py.model.common.components.physics_state import TypedPhysicsState
-from icon4py.model.common.composition import Step, chain, sample, when
+from icon4py.model.common.composition import Step, chain, named, sample, when
 from icon4py.model.common.states import prognostic_state, tracer_states
 
 
-class ForcingMode(enum.IntEnum):
-    """Per-process apply switch -- the icon4py analogue of AES ``fc_xxx``.
-
-    Decides whether a process's computed forcing is fed back into the prognostic
-    state when the process runs:
-
-    - APPLY:      compute and apply it (``field += tend*dt``); the process affects the run.
-    - DIAGNOSTIC: compute it but do NOT apply it -- the outputs stay available for
-      inspection/output while the prognostic state is left unchanged ("look, don't touch").
-    """
-
-    DIAGNOSTIC = 0
-    APPLY = 1
+if TYPE_CHECKING:
+    from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.physics_driver import (
+        PhysicsProcess,
+    )
 
 
 @dataclasses.dataclass
@@ -52,17 +41,6 @@ InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 
 
-class _NamedStep:
-    """Simple wrapper giving a callable step a ``name`` attribute."""
-
-    def __init__(self, name: str, fn: Callable[[PhysicsLoopState], None]) -> None:
-        self.name = name
-        self._fn = fn
-
-    def __call__(self, carry: PhysicsLoopState, item: Any = None) -> None:
-        self._fn(carry)
-
-
 def gather_and_call_step(
     component: Component[InputT, OutputT],
     state: TypedPhysicsState[InputT, OutputT],
@@ -75,65 +53,78 @@ def gather_and_call_step(
         outputs = component.run(inputs)
         carry.sample_cache[process_name] = outputs
 
-    return _NamedStep(f"gather_and_call:{process_name}", _gather_and_call)
+    return named(f"gather_and_call:{process_name}", _gather_and_call)
 
 
-def apply_step(
+def apply_tendencies_step(
     state: TypedPhysicsState[InputT, OutputT], process_name: str
 ) -> Step[PhysicsLoopState]:
-    """Apply the cached typed outputs back to the prognostic state."""
+    """Apply the cached typed tendencies back to the prognostic state."""
 
     def _apply(carry: PhysicsLoopState) -> None:
         outputs = carry.sample_cache[process_name]
-        state.scatter_to_prognostic(outputs, carry.dtime)
+        state.apply_tendencies(outputs, carry.dtime)
 
-    return _NamedStep(f"apply:{process_name}", _apply)
+    return named(f"apply_tendencies:{process_name}", _apply)
 
 
-def diagnose_step(process_name: str) -> Step[PhysicsLoopState]:
-    """Diagnostic mode: no tendency is applied to the prognostic state.
+def store_diagnostics_step(
+    state: TypedPhysicsState[InputT, OutputT], process_name: str
+) -> Step[PhysicsLoopState]:
+    """Store the cached diagnostic outputs without applying tendencies."""
 
-    The component has already run and its outputs are cached; this step is a
-    no-op placeholder kept so the composition tree shows the diagnose branch
-    explicitly.
-    """
+    def _store(carry: PhysicsLoopState) -> None:
+        outputs = carry.sample_cache[process_name]
+        state.store_diagnostics(outputs)
 
-    def _diagnose(carry: PhysicsLoopState) -> None:
-        del carry
+    return named(f"store_diagnostics:{process_name}", _store)
 
-    return _NamedStep(f"diagnose:{process_name}", _diagnose)
+
+def _build_process_step(
+    process: PhysicsProcess[Any, Any],
+) -> Step[PhysicsLoopState]:
+    """Build the step chain for a single physics process."""
+    if not process.time_control.enable_process:
+        return named(f"{process.name}:disabled", lambda c: None)
+
+    interval = process.time_control.interval
+    if interval <= datetime.timedelta(0):
+        # A non-positive interval can never fire; the driver already validates
+        # intervals at construction, so this path is defensive.
+        return named(f"{process.name}:never_fires", lambda c: None)
+
+    gather_call = gather_and_call_step(process.component, process.state, process.name)
+
+    def _in_window(carry: PhysicsLoopState) -> bool:
+        return process.time_control.is_in_window(carry.simulation_current_datetime)
+
+    def _clock(carry: PhysicsLoopState) -> datetime.timedelta:
+        return carry.simulation_current_datetime - process.time_control.start_date
+
+    if process.apply_forcing:
+        post_sample_chain = apply_tendencies_step(process.state, process.name)
+    else:
+        post_sample_chain = store_diagnostics_step(process.state, process.name)
+
+    return when(
+        _in_window,
+        then=chain(
+            sample(
+                gather_call,
+                every=interval,
+                clock=_clock,
+                key=process.name,
+                cache=lambda c: c.sample_cache,
+            ),
+            post_sample_chain,
+            name=f"{process.name}:body",
+        ),
+        name=process.name,
+    )
 
 
 def build_physics_composition(
-    processes: list[Any],
+    processes: list[PhysicsProcess[Any, Any]],
 ) -> Step[PhysicsLoopState]:
     """Build the eDSL composition that runs each process in order."""
-
-    def _process_step(process: Any) -> Step[PhysicsLoopState]:
-        return chain(
-            when(
-                lambda c: (
-                    process.time_control.enable_process
-                    and process.time_control.is_in_window(c.simulation_current_datetime)
-                ),
-                then=chain(
-                    sample(
-                        gather_and_call_step(process.component, process.state, process.name),
-                        every=process.time_control.interval,
-                        clock=lambda c: (
-                            c.simulation_current_datetime - process.time_control.start_date
-                        ),
-                        key=process.name,
-                        cache=lambda c: c.sample_cache,
-                    ),
-                    when(
-                        lambda c: process.forcing_mode is ForcingMode.APPLY,
-                        then=apply_step(process.state, process.name),
-                        else_=diagnose_step(process.name),
-                    ),
-                ),
-                name=process.name,
-            ),
-        )
-
-    return chain(*[_process_step(process) for process in processes], name="physics")
+    return chain(*[_build_process_step(process) for process in processes], name="physics")

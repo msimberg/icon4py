@@ -15,7 +15,6 @@ import datetime
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.composition import (
-    ForcingMode,
     PhysicsLoopState,
     build_physics_composition,
 )
@@ -30,6 +29,7 @@ from icon4py.model.common.composition import Step
 if TYPE_CHECKING:
     from icon4py.model.common.states import prognostic_state, tracer_states
 
+
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 
@@ -43,16 +43,16 @@ class PhysicsProcess(Generic[InputT, OutputT]):
     The state adapter is process-specific (it translates the prognostic state to/from
     *this* component's contract), so it is bundled per process rather than shared.
 
-    ``forcing_mode`` is the per-process AES ``fc_xxx`` analogue (DIAGNOSTIC vs APPLY);
-    it lives here rather than on ``ProcessTimeControl`` because it is a property of the
-    process, not of its firing schedule.
+    ``apply_forcing`` is the per-process AES ``fc_xxx`` analogue. When true, the
+    computed tendencies are fed back into the prognostic state; when false, the
+    process runs in diagnostic mode and only stores its diagnostic outputs.
     """
 
     name: str
     component: Component[InputT, OutputT]
     state: TypedPhysicsState[InputT, OutputT]
     time_control: ProcessTimeControl
-    forcing_mode: ForcingMode = ForcingMode.APPLY
+    apply_forcing: bool = True
 
 
 class PhysicsDriver:
@@ -71,8 +71,7 @@ class PhysicsDriver:
 
     def _validate_intervals(self) -> None:
         for process in self._processes:
-            if process.time_control.enable_process:
-                process.time_control.validate_interval(self._dtime)
+            process.time_control.validate_interval(self._dtime)
 
     def _get_composition(self) -> Step[PhysicsLoopState]:
         if self._composition is None:

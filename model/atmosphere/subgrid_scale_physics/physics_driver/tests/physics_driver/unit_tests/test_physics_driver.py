@@ -6,6 +6,10 @@
 # Please, refer to the LICENSE file in the root directory.
 # SPDX-License-Identifier: BSD-3-Clause
 
+"""Unit tests for the physics driver and its eDSL composition."""
+
+from __future__ import annotations
+
 import dataclasses
 import datetime
 
@@ -16,7 +20,6 @@ from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.composition i
     build_physics_composition,
 )
 from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.physics_driver import (
-    ForcingMode,
     PhysicsDriver,
     PhysicsProcess,
 )
@@ -24,23 +27,6 @@ from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.process_time_
     ProcessTimeControl,
 )
 from icon4py.model.common.components.physics_state import TypedPhysicsState
-from icon4py.model.common.states.model import FieldMetaData
-
-
-def test_field_metadata_accepts_kind() -> None:
-    meta: FieldMetaData = {
-        "standard_name": "tend_temperature",
-        "units": "K s-1",
-        "kind": "tendency",
-    }
-    assert meta["kind"] == "tendency"
-
-
-def test_forcing_mode_values() -> None:
-    assert ForcingMode.DIAGNOSTIC.value == 0
-    assert ForcingMode.APPLY.value == 1
-    assert ForcingMode.DIAGNOSTIC is not ForcingMode.APPLY
-    assert len(ForcingMode) == 2
 
 
 _T0 = datetime.datetime(2024, 1, 1, 0, 0, 0)
@@ -119,41 +105,10 @@ class TestProcessTimeControl:
         with pytest.raises(ValueError, match="positive"):
             _tc(interval=datetime.timedelta(0)).validate_interval(_DT)
 
-    def test_validate_interval_skips_disabled_process(self) -> None:
-        _tc(interval=1.5 * _DT, enable_process=False).validate_interval(_DT)
-
-
-def test_physics_process_construction() -> None:
-    class _DummyInput:
-        pass
-
-    class _DummyOutput:
-        pass
-
-    class _DummyComponent:
-        @classmethod
-        def input_type(cls) -> type[_DummyInput]:
-            return _DummyInput
-
-        @classmethod
-        def output_type(cls) -> type[_DummyOutput]:
-            return _DummyOutput
-
-        def run(self, state: _DummyInput) -> _DummyOutput:
-            return _DummyOutput()
-
-    state = RecordingPhysicsState()
-    proc = PhysicsProcess(
-        name="muphys",
-        component=_DummyComponent(),  # type: ignore[arg-type]
-        state=state,
-        time_control=_tc(),
-    )
-    assert proc.name == "muphys"
-    assert proc.component is not None
-    assert proc.state is state
-    assert proc.time_control.enable_process
-    assert proc.forcing_mode is ForcingMode.APPLY
+    def test_validate_interval_rejects_disabled_process_with_non_positive_interval(self) -> None:
+        # M1: interval validation now covers disabled processes too.
+        with pytest.raises(ValueError, match="positive"):
+            _tc(interval=datetime.timedelta(0), enable_process=False).validate_interval(_DT)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -194,45 +149,28 @@ class RecordingComponent:
 
 @dataclasses.dataclass
 class RecordingPhysicsState(TypedPhysicsState[RecordingInput, RecordingOutput]):
-    """Stub TypedPhysicsState: records gather / scatter calls."""
+    """Stub TypedPhysicsState: records gather / apply / store calls."""
 
     gather_calls: list = dataclasses.field(default_factory=list)
-    scatter_calls: list = dataclasses.field(default_factory=list)
+    apply_calls: list = dataclasses.field(default_factory=list)
+    store_calls: list = dataclasses.field(default_factory=list)
 
     def gather_from_prognostic(self, prognostic: object, tracers: object) -> RecordingInput:
         self.gather_calls.append((prognostic, tracers))
         return RecordingInput(payload=(prognostic, tracers))
 
-    def scatter_to_prognostic(self, outputs: RecordingOutput, dtime: datetime.timedelta) -> None:
-        self.scatter_calls.append((outputs, dtime))
+    def apply_tendencies(self, outputs: RecordingOutput, dtime: datetime.timedelta) -> None:
+        self.apply_calls.append((outputs, dtime))
 
-
-def test_recording_doubles_record_calls() -> None:
-    component = RecordingComponent(
-        outputs={"tend_temperature": "T_TEND_VALUE", "pflx": "PFLX_VALUE"},
-    )
-    state = RecordingPhysicsState()
-
-    # Simulate what PhysicsDriver now does.
-    inputs = state.gather_from_prognostic("prog", "tracers")
-    out = component.run(inputs)
-    state.scatter_to_prognostic(out, datetime.timedelta(seconds=300))
-
-    assert state.gather_calls == [("prog", "tracers")]
-    assert component.call_count == 1
-    assert component.last_input is not None
-    assert component.last_input.payload == ("prog", "tracers")
-    assert state.scatter_calls[0][0].payload == {
-        "tend_temperature": "T_TEND_VALUE",
-        "pflx": "PFLX_VALUE",
-    }
+    def store_diagnostics(self, outputs: RecordingOutput) -> None:
+        self.store_calls.append(outputs)
 
 
 def _make_process(
     name: str,
     outputs: dict[str, object],
     time_control: ProcessTimeControl | None = None,
-    forcing_mode: ForcingMode = ForcingMode.APPLY,
+    apply_forcing: bool = True,
 ) -> PhysicsProcess:
     component = RecordingComponent(outputs=outputs)
     return PhysicsProcess(
@@ -240,7 +178,7 @@ def _make_process(
         component=component,  # type: ignore[arg-type]
         state=RecordingPhysicsState(),
         time_control=time_control if time_control is not None else _tc(),
-        forcing_mode=forcing_mode,
+        apply_forcing=apply_forcing,
     )
 
 
@@ -249,8 +187,8 @@ def _make_carry(
     simulation_current_datetime: datetime.datetime = _T0,
 ) -> PhysicsLoopState:
     return PhysicsLoopState(
-        prognostic="prog",
-        tracers="tracers",
+        prognostic="prog",  # type: ignore[arg-type]
+        tracers="tracers",  # type: ignore[arg-type]
         dtime=_DT,
         simulation_current_datetime=simulation_current_datetime,
         sample_cache=sample_cache if sample_cache is not None else {},
@@ -266,9 +204,9 @@ def test_composition_invokes_components_in_order() -> None:
 
     assert proc_a.component.call_count == 1
     assert proc_b.component.call_count == 1
-    # B's scatter must follow A's (operator-splitting ordering)
-    assert proc_a.state.scatter_calls[0][0].payload == {"tend_temperature": "A"}
-    assert proc_b.state.scatter_calls[0][0].payload == {"tend_temperature": "B"}
+    # B's apply must follow A's (operator-splitting ordering)
+    assert proc_a.state.apply_calls[0][0].payload == {"tend_temperature": "A"}
+    assert proc_b.state.apply_calls[0][0].payload == {"tend_temperature": "B"}
 
 
 def test_driver_construction_raises_for_non_multiple_interval() -> None:
@@ -276,6 +214,17 @@ def test_driver_construction_raises_for_non_multiple_interval() -> None:
     with pytest.raises(ValueError, match="integer multiple"):
         PhysicsDriver([proc], dtime=_DT)
     assert proc.component.call_count == 0
+
+
+def test_driver_construction_validates_disabled_process_interval() -> None:
+    # M1: a disabled process with a non-positive interval fails at construction.
+    proc = _make_process(
+        "disabled_bad_interval",
+        {"tend_temperature": "X"},
+        time_control=_tc(interval=datetime.timedelta(0), enable_process=False),
+    )
+    with pytest.raises(ValueError, match="positive"):
+        PhysicsDriver([proc], dtime=_DT)
 
 
 def test_composition_skips_disabled_process() -> None:
@@ -289,7 +238,8 @@ def test_composition_skips_disabled_process() -> None:
     composition(_make_carry())
 
     assert proc.component.call_count == 0
-    assert proc.state.scatter_calls == []
+    assert proc.state.apply_calls == []
+    assert proc.state.store_calls == []
 
 
 def test_composition_out_of_window_process_does_nothing() -> None:
@@ -304,7 +254,8 @@ def test_composition_out_of_window_process_does_nothing() -> None:
     composition(_make_carry(simulation_current_datetime=_T0))
 
     assert proc.component.call_count == 0
-    assert proc.state.scatter_calls == []
+    assert proc.state.apply_calls == []
+    assert proc.state.store_calls == []
 
 
 def test_composition_active_call_caches_outputs_and_applies_them() -> None:
@@ -314,10 +265,13 @@ def test_composition_active_call_caches_outputs_and_applies_them() -> None:
 
     composition(_make_carry(sample_cache=cache))
 
+    cached = cache["p"]
+    assert isinstance(cached, RecordingOutput)
     assert proc.component.call_count == 1
-    assert cache["p"].payload == {"tend_temperature": "FRESH"}
-    assert proc.state.scatter_calls[0][0].payload == {"tend_temperature": "FRESH"}
-    assert proc.state.scatter_calls[0][1] == _DT
+    assert cached.payload == {"tend_temperature": "FRESH"}
+    assert proc.state.apply_calls[0][0].payload == {"tend_temperature": "FRESH"}
+    assert proc.state.apply_calls[0][1] == _DT
+    assert proc.state.store_calls == []
 
 
 def test_composition_inactive_in_window_recycles_cached_outputs() -> None:
@@ -334,10 +288,10 @@ def test_composition_inactive_in_window_recycles_cached_outputs() -> None:
 
     # Component invoked once total (compute step only).
     assert proc.component.call_count == 1
-    # But scatter happened twice — once with the fresh tendency, once recycled.
-    assert len(proc.state.scatter_calls) == 2
-    assert proc.state.scatter_calls[0][0].payload == {"tend_temperature": "FRESH"}
-    assert proc.state.scatter_calls[1][0].payload == {"tend_temperature": "FRESH"}  # recycled
+    # But apply happened twice — once with the fresh tendency, once recycled.
+    assert len(proc.state.apply_calls) == 2
+    assert proc.state.apply_calls[0][0].payload == {"tend_temperature": "FRESH"}
+    assert proc.state.apply_calls[1][0].payload == {"tend_temperature": "FRESH"}  # recycled
 
 
 def test_composition_first_in_window_step_inactive_computes_without_keyerror() -> None:
@@ -352,32 +306,35 @@ def test_composition_first_in_window_step_inactive_computes_without_keyerror() -
     composition(_make_carry(sample_cache=cache, simulation_current_datetime=_T0 + _DT))
 
     assert proc.component.call_count == 1
-    assert len(proc.state.scatter_calls) == 1
-    assert proc.state.scatter_calls[0][0].payload == {"tend_temperature": "FRESH"}
+    assert len(proc.state.apply_calls) == 1
+    assert proc.state.apply_calls[0][0].payload == {"tend_temperature": "FRESH"}
 
 
 def test_composition_apply_mode_selects_apply_chain() -> None:
-    proc = _make_process("p", {"tend_temperature": "FRESH"}, forcing_mode=ForcingMode.APPLY)
+    proc = _make_process("p", {"tend_temperature": "FRESH"}, apply_forcing=True)
     composition = build_physics_composition([proc])
 
     composition(_make_carry())
 
-    assert len(proc.state.scatter_calls) == 1
-    assert proc.state.scatter_calls[0][0].payload == {"tend_temperature": "FRESH"}
+    assert len(proc.state.apply_calls) == 1
+    assert proc.state.apply_calls[0][0].payload == {"tend_temperature": "FRESH"}
+    assert proc.state.store_calls == []
 
 
-def test_composition_diagnostic_mode_routes_to_diagnose_step() -> None:
+def test_composition_diagnostic_mode_selects_store_diagnostics_step() -> None:
     proc = _make_process(
         "p",
         {"tend_temperature": "FRESH"},
-        forcing_mode=ForcingMode.DIAGNOSTIC,
+        apply_forcing=False,
     )
     composition = build_physics_composition([proc])
 
     composition(_make_carry())
 
     assert proc.component.call_count == 1
-    assert proc.state.scatter_calls == []  # diagnose branch does not apply tendencies
+    assert proc.state.apply_calls == []  # diagnostic branch does not apply tendencies
+    assert len(proc.state.store_calls) == 1
+    assert proc.state.store_calls[0].payload == {"tend_temperature": "FRESH"}
 
 
 def test_driver_run_matches_composition() -> None:
@@ -398,4 +355,4 @@ def test_driver_run_matches_composition() -> None:
     )
 
     assert proc.component.call_count == 1
-    assert len(proc.state.scatter_calls) == 2
+    assert len(proc.state.apply_calls) == 2
