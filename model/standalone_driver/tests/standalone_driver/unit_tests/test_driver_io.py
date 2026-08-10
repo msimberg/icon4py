@@ -16,6 +16,7 @@ import copy
 import datetime
 import pathlib
 import uuid
+from typing import cast
 
 import gt4py.next as gtx
 import numpy as np
@@ -32,6 +33,7 @@ from icon4py.model.common.states import (
 )
 from icon4py.model.common.utils import data_allocation as data_alloc
 from icon4py.model.standalone_driver import driver_io, edsl_driver, plain_driver
+from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 from icon4py.model.standalone_driver.standalone_driver import Icon4pyDriver
 from icon4py.model.testing.fixtures import backend
 
@@ -321,71 +323,127 @@ def test_diagnostic_fields_to_dataarrays(grid: base.Grid) -> None:
     assert before == state_data.DIAGNOSTIC_CF_ATTRIBUTES
 
 
+@pytest.mark.parametrize("failure_mode", ["initial", "mid_loop"])
 @pytest.mark.parametrize("use_plain_driver", [False, True])
-def test_io_monitor_close_is_called_when_store_raises(
+def test_io_monitor_close_is_called_when_step_raises(
     monkeypatch: pytest.MonkeyPatch,
     use_plain_driver: bool,
+    failure_mode: str,
 ) -> None:
-    """If the IO monitor raises mid-run, the driver still closes it."""
+    """If a step raises, ``io_monitor.close()`` is called exactly once.
 
-    class _RaisingStep:
+    The ``initial`` case fires on the first ``io_snapshot_step`` call (pre-loop).
+    The ``mid_loop`` case fires on the second ``io_snapshot_step`` call, which
+    happens at the end of the first time-step iteration.
+    """
+
+    class _FailingStep:
         name = "raising_io_snapshot"
 
+        def __init__(self) -> None:
+            self._calls = 0
+
         def __call__(self, carry: object, item: object = None) -> None:
-            raise RuntimeError("store failed")
+            del carry, item
+            self._calls += 1
+            if (failure_mode == "initial" and self._calls == 1) or (
+                failure_mode == "mid_loop" and self._calls == 2
+            ):
+                raise RuntimeError("store failed")
 
     class _FakeIOMonitor:
         def __init__(self) -> None:
-            self.close_called = False
+            self.close_count = 0
 
         def store(self, state: dict, model_time: object) -> None:
             pass
 
         def close(self) -> None:
-            self.close_called = True
+            self.close_count += 1
+
+    class _FakeClock:
+        is_first_step_in_simulation = False
+        cfl_watch_mode = False
+        simulation_current_datetime = datetime.datetime(2000, 1, 1)
+        dtime_in_seconds = 1.0
+        substep_timestep = 0.5
+        n_time_steps = 2 if failure_mode == "mid_loop" else 1
+
+        def advance_simulation_datetime(self) -> None:
+            pass
+
+    class _FakePrognostics:
+        def swap(self) -> None:
+            pass
+
+    class _FakeTracers:
+        def swap(self) -> None:
+            pass
+
+    class _FakeStates:
+        prognostics = _FakePrognostics()
+        tracers = _FakeTracers()
+        solve_nonhydro_diagnostic = None
+        tracer_advection_diagnostic = None
+
+    class _FakeGranules:
+        diffusion = None
+        tracer_advection = None
+        physics = None
+
+    class _FakeDriverConfig:
+        profiling_options = None
+        diffuse_before_time_loop = False
+        nonhydrostatic = None
+
+    class _FakeConfig:
+        driver = _FakeDriverConfig()
+        nonhydrostatic = None
 
     class _FakeServices:
         io_monitor = _FakeIOMonitor()
         derived_quantities = None
+        tendencies = None
+        backend = None
+        xp = np
 
-    class _FakeDriverConfig:
-        diffuse_before_time_loop = False
+    class _FakeCarry:
+        services = _FakeServices()
+        config = _FakeConfig()
+        clock = _FakeClock()
+        states = _FakeStates()
+        granules = _FakeGranules()
+        wall_clock_starting_time = datetime.datetime.now()
+        time_step_index = 0
+        substep_index = 0
+        substep_total = 0
 
-    class _FakeConfig:
-        driver = _FakeDriverConfig()
+        def begin_time_step(self, index: int, total: int) -> None:
+            del total
+            self.time_step_index = index
 
-    class _FakeClock:
-        is_first_step_in_simulation = False
-        dtime_in_seconds = 1.0
-        substep_timestep = 0.5
-        n_time_steps = 1
+        def begin_substep(self, index: int, total: int) -> None:
+            self.substep_index = index
+            self.substep_total = total
 
-    fake_carry = type(
-        "_FakeCarry",
-        (),
-        {
-            "services": _FakeServices(),
-            "config": _FakeConfig(),
-            "clock": _FakeClock(),
-        },
-    )()
-
+    fake_carry = _FakeCarry()
     io_monitor = _FakeServices.io_monitor
+    failing_step = _FailingStep()
 
     if use_plain_driver:
-        monkeypatch.setattr(plain_driver, "io_snapshot_step", _RaisingStep())
+        monkeypatch.setattr(plain_driver, "io_snapshot_step", failing_step)
         with pytest.raises(RuntimeError, match="store failed"):
-            plain_driver.run_time_integration_plain(fake_carry)
+            plain_driver.run_time_integration_plain(cast(DriverLoopState, fake_carry))
     else:
         driver = object.__new__(Icon4pyDriver)
         driver.io_monitor = io_monitor  # type: ignore[assignment]
         driver.model_time_variables = _FakeClock()  # type: ignore[assignment]
         driver.granules = None  # type: ignore[assignment]
         driver._derived_quantities = None  # type: ignore[assignment]
-        driver._build_carry = lambda ds: fake_carry  # type: ignore[method-assign]
-        monkeypatch.setattr(edsl_driver, "io_snapshot_step", _RaisingStep())
+        driver._build_carry = lambda ds: cast(DriverLoopState, fake_carry)  # type: ignore[method-assign]
+        monkeypatch.setattr(edsl_driver, "io_snapshot_step", failing_step)
 
         with pytest.raises(RuntimeError, match="store failed"):
             driver.time_integration(None)  # type: ignore[arg-type]
 
-    assert io_monitor.close_called
+    assert io_monitor.close_count == 1
