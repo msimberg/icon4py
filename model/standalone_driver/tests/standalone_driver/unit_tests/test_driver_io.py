@@ -297,19 +297,22 @@ def test_diagnostic_fields_to_dataarrays(grid: base.Grid) -> None:
     numpy buffers, and the shared CF table is not mutated."""
     before = copy.deepcopy(state_data.DIAGNOSTIC_CF_ATTRIBUTES)
 
-    # cell/full-level fields, like what compute_diagnostics returns
     def _zero_cell_k() -> gtx.Field:
         return data_alloc.zero_field(grid, dims.CellDim, dims.KDim, dtype=ta.wpfloat)
 
     fields = {name: _zero_cell_k() for name in driver_io.DIAGNOSTIC_VARIABLES}
+    fields["surface_pressure"] = data_alloc.zero_field(grid, dims.CellDim, dtype=ta.wpfloat)
     state = driver_io.diagnostic_fields_to_dataarrays(fields)
 
     assert set(state.keys()) == set(driver_io.DIAGNOSTIC_VARIABLES)
-    for da in state.values():
-        assert da.dims == ("cell", "level")
-        assert da.shape == (grid.num_cells, grid.num_levels)
+    for name, da in state.items():
+        if name == "surface_pressure":
+            assert da.dims == ("cell",)
+            assert da.shape == (grid.num_cells,)
+        else:
+            assert da.dims == ("cell", "level")
+            assert da.shape == (grid.num_cells, grid.num_levels)
         assert isinstance(da.data, np.ndarray)
-
     assert state["temperature"].attrs["standard_name"] == "air_temperature"
     assert state["pressure"].attrs["units"] == "Pa"
     assert state["eastward_wind"].attrs["location"] == "face"
@@ -378,7 +381,7 @@ def test_io_monitor_close_is_called_when_store_raises(
         driver.io_monitor = io_monitor  # type: ignore[assignment]
         driver.model_time_variables = _FakeClock()  # type: ignore[assignment]
         driver.granules = None  # type: ignore[assignment]
-        driver._derived_quantities = None
+        driver._derived_quantities = None  # type: ignore[assignment]
         driver._build_carry = lambda ds: fake_carry  # type: ignore[method-assign]
         monkeypatch.setattr(edsl_driver, "io_snapshot_step", _RaisingStep())
 

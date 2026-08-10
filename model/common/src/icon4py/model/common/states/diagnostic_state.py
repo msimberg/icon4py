@@ -50,6 +50,15 @@ class DiagnosticState:
         lifetime=spec.Lifetime.PERSISTENT,
         labels=["diagnostic", "restart"],
     )
+    #: air pressure [Pa] at ground level, derived from the lowest half-level pressure.
+    surface_pressure: fa.CellField[ta.wpfloat] = spec.spec(
+        quantity=q.AIR_PRESSURE_AT_GROUND_LEVEL.name,
+        units=q.AIR_PRESSURE_AT_GROUND_LEVEL.units,
+        dims=q.AIR_PRESSURE_AT_GROUND_LEVEL.dims,
+        intent=spec.Intent.WRITE,
+        lifetime=spec.Lifetime.PERSISTENT,
+        labels=["diagnostic", "output"],
+    )
     #: air temperature [K] at cell center, originally defined as temp in ICON
     temperature: fa.CellKField[ta.wpfloat] = spec.spec(
         quantity=q.AIR_TEMPERATURE.name,
@@ -87,12 +96,7 @@ class DiagnosticState:
         labels=["diagnostic", "output"],
     )
 
-    @property
-    def surface_pressure(self) -> fa.CellField[ta.wpfloat]:
-        return gtx.as_field((dims.CellDim,), self.pressure_ifc.ndarray[:, -1])
 
-
-@dataclasses.dataclass
 class DiagnosticMetricState:
     """Class that contains the diagnostic metric state for computing the diagnostic state."""
 
@@ -149,9 +153,16 @@ def initialize_diagnostic_state(
         allocator=allocator,
         dtype=ta.wpfloat,
     )
+    surface_pressure = data_alloc.zero_field(
+        grid,
+        dims.CellDim,
+        allocator=allocator,
+        dtype=ta.wpfloat,
+    )
     return DiagnosticState(
         pressure=pressure,
         pressure_ifc=pressure_ifc,
+        surface_pressure=surface_pressure,
         temperature=temperature,
         virtual_temperature=virtual_temperature,
         u=u,

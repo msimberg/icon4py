@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 import icon4py.model.common.grid.horizontal as h_grid
-from icon4py.model.common import dimension as dims
+from icon4py.model.common import dimension as dims, type_alias as ta
 from icon4py.model.common.constants import PhysicsConstants
 from icon4py.model.common.diagnostic_calculations.stencils import (
     calculate_tendency,
@@ -344,11 +344,15 @@ def test_diagnostic_update_after_saturation_adjustement(  # noqa: PLR0917 [too-m
     )
     exner = satad_init.exner()
 
+    surface_pressure = data_alloc.zero_field(
+        icon_grid, dims.CellDim, dtype=ta.wpfloat, allocator=backend
+    )
     diagnostic_state = diagnostics.DiagnosticState(
         temperature=satad_exit.temperature(),
         virtual_temperature=satad_init.virtual_temperature(),
         pressure=satad_init.pressure(),
         pressure_ifc=satad_init.pressure_ifc(),
+        surface_pressure=surface_pressure,
         u=None,
         v=None,
     )
@@ -405,6 +409,7 @@ def test_diagnostic_update_after_saturation_adjustement(  # noqa: PLR0917 [too-m
         vertical_end=gtx.int32(icon_grid.num_levels + 1),
         offset_provider={},
     )
+    diagnostic_state.surface_pressure.ndarray[:] = diagnostic_state.pressure_ifc.ndarray[:, -1]
 
     diagnose_pressure.diagnose_pressure.with_backend(backend)(
         metrics_savepoint.ddqz_z_full(),

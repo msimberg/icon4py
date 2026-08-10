@@ -86,6 +86,7 @@ def test_graupel(
         virtual_temperature=None,
         pressure=entry_savepoint.pressure(),
         pressure_ifc=None,
+        surface_pressure=None,
         u=None,
         v=None,
     )

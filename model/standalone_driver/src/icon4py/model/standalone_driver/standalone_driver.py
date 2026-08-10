@@ -17,6 +17,7 @@ from collections.abc import Callable
 import gt4py.next as gtx
 
 from icon4py.model.atmosphere.dycore.stencils import compute_airmass
+from icon4py.model.atmosphere.subgrid_scale_physics.muphys import state as muphys_state
 from icon4py.model.common import (
     dimension as dims,
     initial_condition,
@@ -103,20 +104,13 @@ class Icon4pyDriver:
         return data_alloc.import_array_ns(self._allocator)
 
     @functools.cached_property
-    def _diagnostics_computer(self) -> driver_io.DiagnosticsComputer:
-        """Reuses its scratch/output buffers across output steps (allocated once)."""
-        return driver_io.DiagnosticsComputer(grid=self.grid, backend=self.backend)
-
-    @functools.cached_property
-    def _derived_quantities(self) -> DerivedQuantities | None:
+    def _derived_quantities(self) -> DerivedQuantities:
         """Canonical T/p/u/v derivation (allocated once, run every time step).
 
-        The derivation needs the hydrometeor tracers (at minimum qv). When the
-        experiment does not configure them, the step is omitted from the loop.
+        Dry experiments pass zero-filled hydrometeor buffers, so the step is always
+        part of the composition and the diagnostic state is always available for IO
+        and physics.
         """
-        tracer_config = self.config.tracer_config
-        if tracer_config is None or not tracer_config.qv:
-            return None
         return DerivedQuantities(grid=self.grid, backend=self.backend)
 
     @functools.cached_property
@@ -163,7 +157,6 @@ class Icon4pyDriver:
                 backend=self.backend,
                 xp=self._xp,
                 allocator=self._allocator,
-                diagnostics_computer=self._diagnostics_computer,
                 derived_quantities=self._derived_quantities,
                 compute_airmass=self._compute_airmass,
             ),
@@ -363,6 +356,10 @@ def _assemble_run(
     diagnostic_state = diagnostics.initialize_diagnostic_state(
         grid=icon4py_driver.grid, allocator=allocator
     )
+    if icon4py_driver.granules.physics is not None:
+        for process in icon4py_driver.granules.physics._processes:
+            if isinstance(process.state, muphys_state.State):
+                process.state.diagnostic = diagnostic_state
     assert icon4py_driver.granules.registry is not None
     ds = driver_states.assemble_driver_states(
         grid=icon4py_driver.grid,

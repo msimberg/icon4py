@@ -57,7 +57,7 @@ def date2num(
     return cftime.date2num(date, units=units, calendar=calendar)
 
 
-def to_canonical_dim_order(data: xarray.DataArray) -> xarray.DataArray | None:
+def to_canonical_dim_order(data: xarray.DataArray) -> xarray.DataArray:
     """Check for spatial dimensions being in canonical order ('T', 'Z', 'Y', 'X') and return them in this order."""
     dims = data.dims
     if len(dims) >= 2:
@@ -67,6 +67,4 @@ def to_canonical_dim_order(data: xarray.DataArray) -> xarray.DataArray | None:
             "half_level",
         ):
             return data.transpose(dims[1], dims[0], *dims[2:], transpose_coords=True)
-        else:
-            return data
-    return None
+    return data

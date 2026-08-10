@@ -76,12 +76,12 @@ def build_time_integration_composition(
             ),
         ),
         when(
-            lambda c: c.granules.physics is not None,
-            then=build_physics_composition_step(granules.physics if granules is not None else None),
-        ),
-        when(
             lambda c: derived_quantities is not None,
             then=build_update_derived_quantities_step(derived_quantities),
+        ),
+        when(
+            lambda c: c.granules.physics is not None,
+            then=build_physics_composition_step(granules.physics if granules is not None else None),
         ),
         swap_step,
         sync_step,

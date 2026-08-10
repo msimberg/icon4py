@@ -31,9 +31,6 @@ from icon4py.model.common import (
 from icon4py.model.common.components.physics_state import TypedPhysicsState
 from icon4py.model.common.diagnostic_calculations.stencils import (
     calculate_tendency,
-    diagnose_pressure,
-    diagnose_surface_pressure,
-    diagnose_temperature,
     update_exner_and_theta_v,
 )
 from icon4py.model.common.math.stencils import generic_math_operations
@@ -45,7 +42,12 @@ if TYPE_CHECKING:
     import gt4py.next.typing as gtx_typing
 
     from icon4py.model.common.grid import base as base_grid
-    from icon4py.model.common.states import factory, prognostic_state as prognostics, tracer_states
+    from icon4py.model.common.states import (
+        diagnostic_state as diagnostics,
+        factory,
+        prognostic_state as prognostics,
+        tracer_states,
+    )
 
 
 class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
@@ -63,10 +65,12 @@ class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
         grid: base_grid.Grid,
         metrics: factory.FieldSource,
         backend: gtx_typing.Backend | None = None,
+        diagnostic: diagnostics.DiagnosticState | None = None,
     ) -> None:
         self._num_cells = grid.num_cells
         self._num_levels = grid.num_levels
         self._backend = backend
+        self.diagnostic = diagnostic
 
         full_horizontal = {
             "horizontal_start": gtx.int32(0),
@@ -77,30 +81,6 @@ class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
             "vertical_end": gtx.int32(self._num_levels),
         }
 
-        self._diagnose_temperature = model_options.setup_program(
-            program=diagnose_temperature.diagnose_virtual_temperature_and_temperature,
-            backend=self._backend,
-            horizontal_sizes=full_horizontal,
-            vertical_sizes=full_vertical,
-            offset_provider={},
-        )
-        self._diagnose_surface_pressure = model_options.setup_program(
-            program=diagnose_surface_pressure.diagnose_surface_pressure,
-            backend=self._backend,
-            horizontal_sizes=full_horizontal,
-            vertical_sizes={
-                "vertical_start": gtx.int32(self._num_levels),
-                "vertical_end": gtx.int32(self._num_levels + 1),
-            },
-            offset_provider={},
-        )
-        self._diagnose_pressure = model_options.setup_program(
-            program=diagnose_pressure.diagnose_pressure,
-            backend=self._backend,
-            horizontal_sizes=full_horizontal,
-            vertical_sizes=full_vertical,
-            offset_provider={},
-        )
         self._apply_tendency = model_options.setup_program(
             program=generic_math_operations.compute_field_a_plus_coeff_times_field_b_on_cell_k,
             backend=self._backend,
@@ -125,14 +105,11 @@ class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
 
         self.dz = metrics.get(metrics_attributes.DDQZ_Z_FULL)
         self.rho: fa.CellKField[ta.wpfloat] | None = None
+        self.te: fa.CellKField[ta.wpfloat] | None = None
+        self.p: fa.CellKField[ta.wpfloat] | None = None
+        self.tv: fa.CellKField[ta.wpfloat] | None = None
         self._prognostic: prognostics.PrognosticState | None = None
         self._tracers: tracer_states.TracerState | None = None
-        self.te = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=backend)
-        self.p = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=backend)
-        self.tv = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=backend)
-        self.pressure_on_cells_half_levels = data_alloc.zero_field(
-            grid, dims.CellDim, dims.KDim, extend={dims.KDim: 1}, allocator=backend
-        )
 
         # INTERNAL
         self._new_te = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=backend)
@@ -171,39 +148,14 @@ class State(TypedPhysicsState[MuphysInput, MuphysOutput]):
         assert qi is not None, "qi must be active for muphys"
         assert qg is not None, "qg must be active for muphys"
 
-        # Diagnose virtual temperature and temperature (te is not stored prognostically).
-        self._diagnose_temperature(
-            qv=qv,
-            qc=qc,
-            qi=qi,
-            qr=qr,
-            qs=qs,
-            qg=qg,
-            theta_v=prognostic.theta_v,
-            exner=prognostic.exner,
-            virtual_temperature=self.tv,
-            temperature=self.te,
-        )
-
-        self._diagnose_surface_pressure(
-            exner=prognostic.exner,
-            virtual_temperature=self.tv,
-            ddqz_z_full=self.dz,
-            surface_pressure=self.pressure_on_cells_half_levels,
-        )
-        surface_pressure = gtx.as_field(
-            (dims.CellDim,),
-            self.pressure_on_cells_half_levels.ndarray[:, -1],
-            allocator=self._backend,
-        )
-        self._diagnose_pressure(
-            ddqz_z_full=self.dz,
-            virtual_temperature=self.tv,
-            surface_pressure=surface_pressure,
-            pressure=self.p,
-            pressure_ifc=self.pressure_on_cells_half_levels,
-        )
-
+        # Read the canonical diagnosed fields from the diagnostic state. The canonical
+        # derivation runs before physics in the time loop and uses the same stencil
+        # programs as the old in-place diagnosis, so the values muphys consumes are
+        # identical on the prognostic subdomain.
+        assert self.diagnostic is not None, "muphys State requires a DiagnosticState"
+        self.te = self.diagnostic.temperature
+        self.p = self.diagnostic.pressure
+        self.tv = self.diagnostic.virtual_temperature
         return MuphysInput(
             dz=self.dz,
             te=self.te,

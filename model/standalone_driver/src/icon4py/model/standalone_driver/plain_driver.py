@@ -72,10 +72,10 @@ def run_time_integration_plain(carry: DriverLoopState) -> None:  # noqa: PLR0912
                 for tracer_current in carry.states.tracers.current.active_fields():
                     _advect_tracer(carry, tracer_current)
 
+            _update_derived_quantities(carry, carry.services.derived_quantities)
+
             if carry.granules.physics is not None:
                 _physics(carry)
-
-            _update_derived_quantities(carry, carry.services.derived_quantities)
 
             swap_step(carry)
             sync_step(carry)

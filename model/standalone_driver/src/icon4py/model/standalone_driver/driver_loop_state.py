@@ -22,12 +22,7 @@ from icon4py.model.common import prescribed_tendencies
 from icon4py.model.common.decomposition import definitions as decomposition_defs
 from icon4py.model.common.io import io as common_io
 from icon4py.model.common.states import static_fields
-from icon4py.model.standalone_driver import (
-    config as driver_config,
-    driver_io,
-    driver_states,
-    driver_utils,
-)
+from icon4py.model.standalone_driver import config as driver_config, driver_states, driver_utils
 
 
 if TYPE_CHECKING:
@@ -47,7 +42,6 @@ class DriverServices:
     backend: gtx.typing.Backend | None
     xp: types.ModuleType
     allocator: gtx.typing.Allocator
-    diagnostics_computer: driver_io.DiagnosticsComputer
     derived_quantities: DerivedQuantities | None
     compute_airmass: Callable[..., None]
 

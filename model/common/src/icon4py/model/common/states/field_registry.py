@@ -8,11 +8,10 @@
 
 """Field registry for declared model state and static-field containers.
 
-The registry collects recipes for static fields, adopted external buffers, and
-container schemas declared through ``spec()`` metadata. After ``seal()`` resolves
-the recipe DAG and validates the declared boundaries, ``build(ContainerClass)``
-emits frozen dataclass instances that share one buffer per quantity and time
-level.
+The registry collects recipes for static fields and container schemas declared
+through ``spec()`` metadata. After ``seal()`` resolves the recipe DAG and
+validates the declared boundaries, ``build(ContainerClass)`` emits frozen
+dataclass instances that share one buffer per quantity and time level.
 """
 
 from __future__ import annotations
@@ -152,7 +151,6 @@ class FieldRegistry:
             allocator if allocator is not None else model_backends.get_allocator(backend)
         )
         self._recipes: dict[str, _Recipe] = {}
-        self._adopted: dict[str, Any] = {}
         self._declared_classes: list[type] = []
         self._occurrences: list[_Occurrence] = []
         self._slots: dict[tuple[str, str | None], _Slot] = {}
@@ -176,17 +174,9 @@ class FieldRegistry:
         """Register how a static field is computed."""
         if self._sealed:
             raise RuntimeError("Cannot register a recipe after seal().")
-        if name in self._recipes or name in self._adopted:
-            raise ValueError(f"Duplicate recipe or adoption for quantity '{name}'.")
+        if name in self._recipes:
+            raise ValueError(f"Duplicate recipe for quantity '{name}'.")
         self._recipes[name] = _Recipe(name, compute_fn, tuple(depends_on))
-
-    def adopt(self, name: str, field: Any) -> None:
-        """Adopt an externally owned buffer as a declared leaf."""
-        if self._sealed:
-            raise RuntimeError("Cannot adopt a field after seal().")
-        if name in self._recipes or name in self._adopted:
-            raise ValueError(f"Duplicate recipe or adoption for quantity '{name}'.")
-        self._adopted[name] = field
 
     def declare(self, container_class: type) -> None:
         """Collect the schema of a frozen dataclass with ``spec()`` metadata."""
@@ -308,11 +298,10 @@ class FieldRegistry:
 
         for occurrence in self._occurrences:
             if occurrence.static and occurrence.quantity not in self._recipes:
-                if occurrence.quantity not in self._adopted:
-                    raise ValueError(
-                        f"Static quantity '{occurrence.quantity}' (declared in "
-                        f"{occurrence.container}.{occurrence.field}) has no recipe or adopted field."
-                    )
+                raise ValueError(
+                    f"Static quantity '{occurrence.quantity}' (declared in "
+                    f"{occurrence.container}.{occurrence.field}) has no recipe."
+                )
 
     def _resolve_recipes(self) -> None:
         """Topologically sort static recipes and compute each once."""
@@ -321,7 +310,7 @@ class FieldRegistry:
         for name in recipe_names:
             recipe = self._recipes[name]
             for dep in recipe.depends_on:
-                if dep not in self._recipes and dep not in self._adopted:
+                if dep not in self._recipes:
                     raise ValueError(f"Recipe for '{name}' is missing dependency '{dep}'.")
 
         # Kahn's algorithm for the declared recipe graph.
@@ -353,9 +342,6 @@ class FieldRegistry:
 
         for name in ordered:
             self._buffers[name] = self._recipes[name].compute_fn()
-
-        for name, field in self._adopted.items():
-            self._buffers[name] = field
 
     def _check_handoffs(self) -> None:
         """Verify exactly-one-producer / exactly-one-consumer for handoff quantities."""
@@ -537,7 +523,7 @@ class FieldRegistry:
         if not self._sealed:
             raise RuntimeError("buffer() cannot be called before seal().")
         if name not in self._buffers:
-            raise ValueError(f"Quantity '{name}' has no computed or adopted buffer.")
+            raise ValueError(f"Quantity '{name}' has no computed buffer.")
         return self._buffers[name]
 
     def bump_epoch(self) -> None:

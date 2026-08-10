@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime
 import logging
 
+import gt4py.next as gtx
 from gt4py.next import config as gtx_config
 from gt4py.next.instrumentation import metrics as gtx_metrics
 
@@ -62,17 +63,7 @@ def _io_snapshot(carry: DriverLoopState) -> None:
     assert carry.services.io_monitor is not None
     prognostic_state = carry.states.prognostics.current
     state_to_store = driver_io.prognostic_state_to_dataarrays(prognostic_state)
-    if carry.services.derived_quantities is not None:
-        diagnostic_fields = driver_io.diagnostic_state_to_fields(carry.states.diagnostic)
-    else:
-        metrics = carry.services.static_field_factories.metrics
-        interpolation = carry.services.static_field_factories.interpolation
-        diagnostic_fields = carry.services.diagnostics_computer.compute(
-            prognostic_state,
-            ddqz_z_full=metrics.get(metrics_attr.DDQZ_Z_FULL),
-            rbf_vec_coeff_c1=interpolation.get(intp_attr.RBF_VEC_COEFF_C1),
-            rbf_vec_coeff_c2=interpolation.get(intp_attr.RBF_VEC_COEFF_C2),
-        )
+    diagnostic_fields = driver_io.diagnostic_state_to_fields(carry.states.diagnostic)
     state_to_store.update(driver_io.diagnostic_fields_to_dataarrays(diagnostic_fields))
     carry.services.io_monitor.store(state_to_store, carry.clock.simulation_current_datetime)
 
@@ -467,7 +458,11 @@ def _update_derived_quantities(
     def _tracer(name: str) -> fa.CellKField[ta.wpfloat]:
         field = getattr(tracers, name)
         if field is None:
-            raise ValueError(f"Tracer '{name}' is required for the canonical T/p/u/v derivation.")
+            return gtx.zeros(
+                prognostic_state.rho.domain,
+                dtype=ta.wpfloat,
+                allocator=carry.services.allocator,
+            )
         return field
 
     component.run(
