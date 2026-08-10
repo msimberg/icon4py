@@ -25,7 +25,7 @@ from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.physics_drive
     PhysicsDriver,
 )
 from icon4py.model.atmosphere.tracer_advection import tracer_advection
-from icon4py.model.common import type_alias as ta
+from icon4py.model.common import field_type_aliases as fa, type_alias as ta
 from icon4py.model.common.composition import Step, SwapPolicy, chain, foreach, named, nested, repeat
 from icon4py.model.common.grid import geometry_attributes as geom_attr
 from icon4py.model.common.interpolation import interpolation_attributes as intp_attr
@@ -33,6 +33,10 @@ from icon4py.model.common.metrics import metrics_attributes as metrics_attr
 from icon4py.model.common.states import tracer_states
 from icon4py.model.common.utils import data_allocation as data_alloc, device_utils
 from icon4py.model.standalone_driver import driver_constants, driver_io, driver_states, driver_utils
+from icon4py.model.standalone_driver.derived_quantities import (
+    DerivedQuantities,
+    DerivedQuantitiesInput,
+)
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 
 
@@ -417,6 +421,65 @@ def build_physics_composition_step(physics_driver: PhysicsDriver | None) -> Step
         physics_driver._get_composition(),
         enter=_enter,
         name="physics_step",
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Derived quantities
+# --------------------------------------------------------------------------------------
+
+
+def _update_derived_quantities(
+    carry: DriverLoopState,
+    component: DerivedQuantities | None,
+) -> None:
+    if component is None:
+        return
+    diagnostic_state = carry.states.diagnostic
+    prognostic_state = carry.states.prognostics.next
+    tracers = carry.states.tracers.next
+    metrics = carry.services.static_field_factories.metrics
+    interpolation = carry.services.static_field_factories.interpolation
+
+    def _tracer(name: str) -> fa.CellKField[ta.wpfloat]:
+        field = getattr(tracers, name)
+        if field is None:
+            raise ValueError(f"Tracer '{name}' is required for the canonical T/p/u/v derivation.")
+        return field
+
+    component.run(
+        DerivedQuantitiesInput(
+            theta_v=prognostic_state.theta_v,
+            exner=prognostic_state.exner,
+            vn=prognostic_state.vn,
+            qv=_tracer("qv"),
+            qc=_tracer("qc"),
+            qi=_tracer("qi"),
+            qr=_tracer("qr"),
+            qs=_tracer("qs"),
+            qg=_tracer("qg"),
+            ddqz_z_full=metrics.get(metrics_attr.DDQZ_Z_FULL),
+            rbf_vec_coeff_c1=interpolation.get(intp_attr.RBF_VEC_COEFF_C1),
+            rbf_vec_coeff_c2=interpolation.get(intp_attr.RBF_VEC_COEFF_C2),
+            temperature=diagnostic_state.temperature,
+            virtual_temperature=diagnostic_state.virtual_temperature,
+            pressure=diagnostic_state.pressure,
+            pressure_ifc=diagnostic_state.pressure_ifc,
+            surface_pressure=diagnostic_state.surface_pressure,
+            u=diagnostic_state.u,
+            v=diagnostic_state.v,
+        )
+    )
+
+
+def build_update_derived_quantities_step(
+    component: DerivedQuantities | None,
+) -> Step[DriverLoopState]:
+    """Build the canonical T/p/u/v derivation step with component metadata for introspection."""
+    return named(
+        "update_derived_quantities_step",
+        lambda carry: _update_derived_quantities(carry, component),
+        component=component,
     )
 
 

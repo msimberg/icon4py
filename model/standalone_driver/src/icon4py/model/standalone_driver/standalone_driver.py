@@ -47,6 +47,7 @@ from icon4py.model.standalone_driver import (
     edsl_driver,
     plain_driver,
 )
+from icon4py.model.standalone_driver.derived_quantities import DerivedQuantities
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState, DriverServices
 
 
@@ -105,6 +106,11 @@ class Icon4pyDriver:
     def _diagnostics_computer(self) -> driver_io.DiagnosticsComputer:
         """Reuses its scratch/output buffers across output steps (allocated once)."""
         return driver_io.DiagnosticsComputer(grid=self.grid, backend=self.backend)
+
+    @functools.cached_property
+    def _derived_quantities(self) -> DerivedQuantities:
+        """Canonical T/p/u/v derivation (allocated once, run every time step)."""
+        return DerivedQuantities(grid=self.grid, backend=self.backend)
 
     @functools.cached_property
     def _compute_airmass(self) -> Callable[..., None]:
@@ -167,19 +173,28 @@ class Icon4pyDriver:
         carry = self._build_carry(ds)
 
         try:  # fail gracefully and close `io_monitor` if something goes wrong
-            edsl_driver.build_time_integration_composition(granules=self.granules)(carry)
+            edsl_driver.build_time_integration_composition(
+                granules=self.granules,
+                derived_quantities=self._derived_quantities,
+            )(carry)
         finally:
             if self.io_monitor is not None:
                 self.io_monitor.close()
 
     def show(self) -> str:
         """Return a text tree of the time-integration composition."""
-        composition = edsl_driver.build_time_integration_composition(granules=self.granules)
+        composition = edsl_driver.build_time_integration_composition(
+            granules=self.granules,
+            derived_quantities=self._derived_quantities,
+        )
         return show(composition)
 
     def to_graphviz(self) -> str:
         """Return a graphviz dot string of the composition tree and dataflow graph."""
-        composition = edsl_driver.build_time_integration_composition(granules=self.granules)
+        composition = edsl_driver.build_time_integration_composition(
+            granules=self.granules,
+            derived_quantities=self._derived_quantities,
+        )
         return to_graphviz(composition)
 
 

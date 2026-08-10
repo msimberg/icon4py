@@ -10,6 +10,7 @@
 
 from icon4py.model.common.composition import Step, chain, repeat, when
 from icon4py.model.standalone_driver import driver_utils
+from icon4py.model.standalone_driver.derived_quantities import DerivedQuantities
 from icon4py.model.standalone_driver.driver_loop_state import DriverLoopState
 from icon4py.model.standalone_driver.steps import (
     adjust_ndyn_step,
@@ -19,6 +20,7 @@ from icon4py.model.standalone_driver.steps import (
     build_diffusion_step,
     build_dycore_substeps_step,
     build_physics_composition_step,
+    build_update_derived_quantities_step,
     compute_airmass_new_step,
     compute_airmass_now_step,
     compute_mean_at_final_step,
@@ -33,12 +35,16 @@ from icon4py.model.standalone_driver.steps import (
 def build_time_integration_composition(
     *,
     granules: driver_utils.Granules | None = None,
+    derived_quantities: DerivedQuantities | None = None,
 ) -> Step[DriverLoopState]:
     """Build the full time-integration composition.
 
     ``granules`` supplies components for introspection metadata. When ``None``,
     the leaf steps still call ``component.run(state)`` from the carry at runtime
     but expose no component metadata.
+
+    ``derived_quantities`` is the canonical T/p/u/v component; when ``None`` the
+    step is a no-op.
     """
     outer_step = chain(
         advance_clock_step,
@@ -73,6 +79,7 @@ def build_time_integration_composition(
             lambda c: c.granules.physics is not None,
             then=build_physics_composition_step(granules.physics if granules is not None else None),
         ),
+        build_update_derived_quantities_step(derived_quantities),
         swap_step,
         sync_step,
         end_of_step_step,
