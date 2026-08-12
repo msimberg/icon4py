@@ -49,18 +49,31 @@ DEFAULT_OUTPUT_FILENAME: Final[str] = "icon4py_output"
 # --------------------------------------------------------------------------------------
 
 
-#: Default prognostic output variables, selected by CF name from the
-#: ``states.data.PROGNOSTIC_CF_ATTRIBUTES`` catalog (which also holds fields the driver does
-#: not output, e.g. ``tangential_velocity``). The metadata, the state attribute
-#: (``icon_var_name``) and the vertical placement (``is_on_half_levels``) all come from that
-#: catalog; this list only selects which entries to emit.
-PROGNOSTIC_VARIABLES: Final[list[str]] = [
-    "air_density",
-    "exner_function",
-    "virtual_potential_temperature",
-    "upward_air_velocity",
-    "normal_velocity",
-]
+def _quantities_with_label(cls: type[Any], label: str) -> list[str]:
+    """Return canonical quantity names of fields on ``cls`` carrying ``label``."""
+    return [
+        field_spec.quantity
+        for field_spec in (field_spec.get_field_spec(f) for f in dataclasses.fields(cls))
+        if field_spec is not None and label in field_spec.labels
+    ]
+
+
+def _cf_keys(quantity_names: list[str]) -> list[str]:
+    """Map canonical quantity names to their CF output keys."""
+    return sorted(
+        (quantity.cf_key if quantity.cf_key is not None else quantity.name)
+        for quantity in (quantities.get(q) for q in quantity_names)
+    )
+
+
+#: Default prognostic output variables: the CF names of ``PrognosticState`` fields
+#: labeled ``output``. The metadata, the state attribute (``icon_var_name``) and the
+#: vertical placement (``is_on_half_levels``) come from the
+#: ``states.data.PROGNOSTIC_CF_ATTRIBUTES`` catalog; this list only selects which
+#: entries to emit.
+PROGNOSTIC_VARIABLES: Final[list[str]] = _cf_keys(
+    _quantities_with_label(prognostics.PrognosticState, "output")
+)
 
 
 def prognostic_state_to_dataarrays(
@@ -94,43 +107,20 @@ def prognostic_state_to_dataarrays(
 # --------------------------------------------------------------------------------------
 
 
-DIAGNOSTIC_VARIABLES: Final[list[str]] = [
-    "eastward_wind",
-    "northward_wind",
-    "temperature",
-    "virtual_temperature",
-    "pressure",
-    "surface_pressure",
-]
-#: All output variables (prognostic + diagnostic), written together into the same file.
-#: Kept as a module constant for backward compatibility; the canonical value is
-#: computed by ``output_variables()`` from the declared labels.
-_DEFAULT_OUTPUT_VARIABLES_CACHED: Final[list[str]] = [*PROGNOSTIC_VARIABLES, *DIAGNOSTIC_VARIABLES]
-
-
-def _quantities_with_label(cls: type[Any], label: str) -> list[str]:
-    """Return canonical quantity names of fields on ``cls`` carrying ``label``."""
-    return [
-        field_spec.quantity
-        for field_spec in (field_spec.get_field_spec(f) for f in dataclasses.fields(cls))
-        if field_spec is not None and label in field_spec.labels
-    ]
+#: Diagnostic output variables: the CF names of ``DiagnosticState`` fields labeled
+#: ``output``.
+DIAGNOSTIC_VARIABLES: Final[list[str]] = _cf_keys(
+    _quantities_with_label(diagnostics.DiagnosticState, "output")
+)
 
 
 def output_variables() -> list[str]:
     """Return the CF variable names of all fields labeled ``output``.
 
-    Replaces the hand-picked ``PROGNOSTIC_VARIABLES`` / ``DIAGNOSTIC_VARIABLES``
-    lists with a query over the declarations.
+    A query over the declarations; ``PROGNOSTIC_VARIABLES`` and
+    ``DIAGNOSTIC_VARIABLES`` are its two per-class components.
     """
-    variable_quantities = [
-        *_quantities_with_label(prognostics.PrognosticState, "output"),
-        *_quantities_with_label(diagnostics.DiagnosticState, "output"),
-    ]
-    return sorted(
-        (quantity.cf_key if quantity.cf_key is not None else quantity.name)
-        for quantity in (quantities.get(q) for q in variable_quantities)
-    )
+    return sorted([*PROGNOSTIC_VARIABLES, *DIAGNOSTIC_VARIABLES])
 
 
 #: All output variables (prognostic + diagnostic), written together into the same file.
@@ -143,12 +133,12 @@ def restart_variables() -> list[str]:
     The checkpoint workstream consumes these declarations. The list mixes
     prognostic fields, tracer fields, and the half-level pressure field.
     """
-    quantities = [
+    variable_quantities = [
         *_quantities_with_label(prognostics.PrognosticState, "restart"),
         *_quantities_with_label(tracers.TracerState, "restart"),
         *_quantities_with_label(diagnostics.DiagnosticState, "restart"),
     ]
-    return sorted(quantities)
+    return sorted(variable_quantities)
 
 
 def diagnostic_state_to_fields(
