@@ -16,7 +16,7 @@ import copy
 import datetime
 import pathlib
 import uuid
-from typing import cast
+from typing import Any, cast
 
 import gt4py.next as gtx
 import numpy as np
@@ -24,6 +24,7 @@ import pytest
 import xarray as xr
 
 from icon4py.model.common import dimension as dims, type_alias as ta
+from icon4py.model.common.composition import named
 from icon4py.model.common.grid import base, simple
 from icon4py.model.common.io import io as common_io
 from icon4py.model.common.states import (
@@ -387,6 +388,7 @@ def test_io_monitor_close_is_called_when_step_raises(
         tracer_advection_diagnostic = None
 
     class _FakeGranules:
+        solve_nonhydro = None
         diffusion = None
         tracer_advection = None
         physics = None
@@ -432,16 +434,24 @@ def test_io_monitor_close_is_called_when_step_raises(
 
     if use_plain_driver:
         monkeypatch.setattr(plain_driver, "io_snapshot_step", failing_step)
+        monkeypatch.setattr(
+            plain_driver, "_update_derived_quantities", lambda carry, component: None
+        )
         with pytest.raises(RuntimeError, match="store failed"):
             plain_driver.run_time_integration_plain(cast(DriverLoopState, fake_carry))
     else:
         driver = object.__new__(Icon4pyDriver)
         driver.io_monitor = io_monitor  # type: ignore[assignment]
         driver.model_time_variables = _FakeClock()  # type: ignore[assignment]
-        driver.granules = None  # type: ignore[assignment]
+        driver.granules = cast(Any, _FakeGranules())
         driver._derived_quantities = None  # type: ignore[assignment]
         driver._build_carry = lambda ds: cast(DriverLoopState, fake_carry)  # type: ignore[method-assign]
         monkeypatch.setattr(edsl_driver, "io_snapshot_step", failing_step)
+        monkeypatch.setattr(
+            edsl_driver,
+            "build_update_derived_quantities_step",
+            lambda component: named("update_derived_quantities_step", lambda c: None),
+        )
 
         with pytest.raises(RuntimeError, match="store failed"):
             driver.time_integration(None)  # type: ignore[arg-type]

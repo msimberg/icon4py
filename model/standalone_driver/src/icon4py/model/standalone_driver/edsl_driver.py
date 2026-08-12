@@ -33,18 +33,13 @@ from icon4py.model.standalone_driver.steps import (
 
 
 def build_time_integration_composition(
-    *,
-    granules: driver_utils.Granules | None = None,
-    derived_quantities: DerivedQuantities | None = None,
+    granules: driver_utils.Granules,
+    derived_quantities: DerivedQuantities,
 ) -> Step[DriverLoopState]:
     """Build the full time-integration composition.
 
-    ``granules`` supplies components for introspection metadata. When ``None``,
-    the leaf steps still call ``component.run(state)`` from the carry at runtime
-    but expose no component metadata.
-
-    ``derived_quantities`` is the canonical T/p/u/v component; when ``None`` the
-    step is omitted from the composition.
+    ``granules`` and ``derived_quantities`` supply the components for
+    introspection metadata; leaf steps read them from the carry at runtime.
     """
     outer_step = chain(
         advance_clock_step,
@@ -54,9 +49,7 @@ def build_time_integration_composition(
         ),
         when(
             lambda c: c.config.nonhydrostatic is not None,
-            then=build_dycore_substeps_step(
-                granules.solve_nonhydro if granules is not None else None
-            ),
+            then=build_dycore_substeps_step(granules.solve_nonhydro),
         ),
         when(
             lambda c: c.states.tracer_advection_diagnostic is not None,
@@ -67,21 +60,16 @@ def build_time_integration_composition(
                 c.granules.diffusion is not None
                 and c.granules.diffusion.config.apply_to_horizontal_wind
             ),
-            then=build_diffusion_step(granules.diffusion if granules is not None else None),
+            then=build_diffusion_step(granules.diffusion),
         ),
         when(
             lambda c: c.granules.tracer_advection is not None,
-            then=build_advect_tracers_step(
-                granules.tracer_advection if granules is not None else None
-            ),
+            then=build_advect_tracers_step(granules.tracer_advection),
         ),
-        when(
-            lambda c: derived_quantities is not None,
-            then=build_update_derived_quantities_step(derived_quantities),
-        ),
+        build_update_derived_quantities_step(derived_quantities),
         when(
             lambda c: c.granules.physics is not None,
-            then=build_physics_composition_step(granules.physics if granules is not None else None),
+            then=build_physics_composition_step(granules.physics),
         ),
         swap_step,
         sync_step,
@@ -102,7 +90,7 @@ def build_time_integration_composition(
             lambda c: c.services.io_monitor is not None,
             then=io_snapshot_step,
         ),
-        build_diffuse_before_time_loop_step(granules.diffusion if granules is not None else None),
+        build_diffuse_before_time_loop_step(granules.diffusion),
         repeat(
             with_index(outer_step, set_index=DriverLoopState.begin_time_step),
             times=lambda c: c.clock.n_time_steps,
@@ -112,8 +100,3 @@ def build_time_integration_composition(
         finalize_step,
         name="run_time_integration_edsl",
     )
-
-
-def run_time_integration_edsl(carry: DriverLoopState) -> None:
-    """Run the standalone driver time loop as a composition of steps."""
-    build_time_integration_composition(granules=None)(carry)

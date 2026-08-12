@@ -458,10 +458,8 @@ def build_physics_composition_step(physics_driver: PhysicsDriver | None) -> Step
 
 def _update_derived_quantities(
     carry: DriverLoopState,
-    component: DerivedQuantities | None,
+    component: DerivedQuantities,
 ) -> None:
-    if component is None:
-        return
     diagnostic_state = carry.states.diagnostic
     prognostic_state = carry.states.prognostics.next
     tracers = carry.states.tracers.next
@@ -504,7 +502,7 @@ def _update_derived_quantities(
 
 
 def build_update_derived_quantities_step(
-    component: DerivedQuantities | None,
+    component: DerivedQuantities,
 ) -> Step[DriverLoopState]:
     """Build the canonical T/p/u/v derivation step with component metadata for introspection."""
     return named(

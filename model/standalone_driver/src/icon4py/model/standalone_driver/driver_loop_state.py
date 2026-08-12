@@ -40,7 +40,7 @@ class DriverServices:
     backend: gtx.typing.Backend | None
     xp: types.ModuleType
     allocator: gtx.typing.Allocator
-    derived_quantities: DerivedQuantities | None
+    derived_quantities: DerivedQuantities
     compute_airmass: Callable[..., None]
 
 
