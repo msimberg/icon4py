@@ -168,7 +168,7 @@ class AdvectionInput:
         lifetime=spec.Lifetime.PERSISTENT,
     )
     dtime: ta.wpfloat = spec.spec(
-        quantity="time_step",
+        quantity="icon:time_step",
         units="s",
         dims=(),
         intent=spec.Intent.READ,

@@ -100,7 +100,7 @@ class SaturationAdjustmentInput:
     """Input boundary of the saturation-adjustment component."""
 
     dtime: ta.wpfloat = spec.spec(
-        quantity="time_step",
+        quantity="icon:time_step",
         units="s",
         dims=(),
         intent=spec.Intent.READ,

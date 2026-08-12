@@ -482,7 +482,7 @@ class SolveNonHydroInput:
         lifetime=spec.Lifetime.PERSISTENT,
     )
     prognostic_states: common_utils.TimeStepPair[prognostics.PrognosticState] = spec.spec(
-        quantity="prognostic_states",
+        quantity="icon:prognostic_states",
         units="",
         dims=(),
         intent=spec.Intent.READWRITE,
@@ -503,14 +503,14 @@ class SolveNonHydroInput:
         lifetime=spec.Lifetime.SCRATCH,
     )
     dtime: float = spec.spec(
-        quantity="time_step",
+        quantity="icon:time_step",
         units="s",
         dims=(),
         intent=spec.Intent.READ,
         lifetime=spec.Lifetime.SCRATCH,
     )
     ndyn_substeps_var: int = spec.spec(
-        quantity="ndyn_substeps_var",
+        quantity="icon:ndyn_substeps_var",
         units="",
         dims=(),
         intent=spec.Intent.READ,
@@ -549,7 +549,7 @@ class SolveNonHydroOutput:
         role=spec.Role.IN_PLACE,
     )
     prognostic_states: common_utils.TimeStepPair[prognostics.PrognosticState] = spec.spec(
-        quantity="prognostic_states",
+        quantity="icon:prognostic_states",
         units="",
         dims=(),
         intent=spec.Intent.WRITE,

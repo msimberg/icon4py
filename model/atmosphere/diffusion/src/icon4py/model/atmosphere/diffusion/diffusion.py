@@ -506,14 +506,14 @@ class DiffusionInput:
         lifetime=spec.Lifetime.PERSISTENT,
     )
     prognostic_state: prognostics.PrognosticState = spec.spec(
-        quantity="prognostic_state",
+        quantity="icon:prognostic_state",
         units="",
         dims=(),
         intent=spec.Intent.READWRITE,
         lifetime=spec.Lifetime.PERSISTENT,
     )
     dtime: float = spec.spec(
-        quantity="time_step",
+        quantity="icon:time_step",
         units="s",
         dims=(),
         intent=spec.Intent.READ,
@@ -545,7 +545,7 @@ class DiffusionOutput:
         role=spec.Role.IN_PLACE,
     )
     prognostic_state: prognostics.PrognosticState = spec.spec(
-        quantity="prognostic_state",
+        quantity="icon:prognostic_state",
         units="",
         dims=(),
         intent=spec.Intent.WRITE,
