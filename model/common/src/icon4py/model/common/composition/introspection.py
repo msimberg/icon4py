@@ -74,13 +74,23 @@ def _cadence_label(step: Step[Any]) -> str:
 
 
 def show(step: Step[Any], *, indent: str = "") -> str:
-    """Return a text tree of the composition rooted at ``step``."""
+    """Return both introspection views as text: the composition tree, then the dataflow.
+
+    The two views are readings of the same declarations: the tree shows what
+    runs and in what order and cadence; the dataflow lists which quantities
+    each component produces and consumes.
+    """
+    tree = _tree_text(step, indent)
+    return f"{tree}\n\ndataflow\n{_dataflow_text(step)}"
+
+
+def _tree_text(step: Step[Any], indent: str = "") -> str:
     lines = [f"{indent}{step.name}{_cadence_label(step)}"]
     if isinstance(step, _NamedStep) and step.component is not None:
         component = step.component
         lines[-1] += f"  ({component.__class__.__name__})"
     for child in _children(step):
-        lines.extend(show(child, indent=indent + "  ").split("\n"))
+        lines.extend(_tree_text(child, indent=indent + "  ").split("\n"))
     return "\n".join(lines)
 
 
@@ -189,23 +199,43 @@ def _composition_tree_dot(
     return [f'    {node_id} [label="{label}"];' for node_id, label in nodes.items()] + edges
 
 
-def _dataflow_dot(step: Step[Any]) -> list[str]:
-    component_steps = _collect_component_steps(step)
-
+def _reads_writes(
+    step: Step[Any],
+) -> tuple[dict[str, list[Step[Any]]], dict[str, list[Step[Any]]]]:
+    """Map each declared quantity to the component steps reading and writing it."""
     reads: dict[str, list[Step[Any]]] = defaultdict(list)
     writes: dict[str, list[Step[Any]]] = defaultdict(list)
-
-    for comp_step in component_steps:
+    for comp_step in _collect_component_steps(step):
         component = _component_of(comp_step)
         assert component is not None
-        input_type = component.input_type()
-        output_type = component.output_type()
-        for quantity in _quantity_fields(input_type).values():
+        for quantity in _quantity_fields(component.input_type()).values():
             reads[quantity].append(comp_step)
-        for quantity in _quantity_fields(output_type).values():
+        for quantity in _quantity_fields(component.output_type()).values():
             writes[quantity].append(comp_step)
+    return reads, writes
 
-    quantities = sorted(set(reads.keys()) | set(writes.keys()))
+
+def _dataflow_text(step: Step[Any]) -> str:
+    """Render the dataflow view as per-quantity producer/consumer lines."""
+    reads, writes = _reads_writes(step)
+    lines = []
+    for quantity in sorted(set(reads) | set(writes)):
+        producers = ",".join(sorted({_component_label(s) for s in writes.get(quantity, [])}))
+        consumers = ",".join(sorted({_component_label(s) for s in reads.get(quantity, [])}))
+        parts = []
+        if producers:
+            parts.append(f"produced by {producers}")
+        if consumers:
+            parts.append(f"consumed by {consumers}")
+        lines.append(f"  {quantity}: {'; '.join(parts)}")
+    return "\n".join(lines)
+
+
+def _dataflow_dot(step: Step[Any]) -> list[str]:
+    """Render the dataflow view as graphviz component/quantity nodes and edges."""
+    reads, writes = _reads_writes(step)
+    component_steps = _collect_component_steps(step)
+    quantities = sorted(set(reads) | set(writes))
 
     lines: list[str] = []
     node_ids: set[str] = set()
