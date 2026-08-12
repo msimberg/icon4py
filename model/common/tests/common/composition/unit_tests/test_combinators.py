@@ -114,6 +114,8 @@ def test_repeat_passes_index_and_total_to_child() -> None:
     record_step: Step[_Carry] = named("record", _record, pass_item=True)
     repeat(record_step, times=3)(_Carry())
 
+    assert recorded == [(0, 3), (1, 3), (2, 3)]
+
 
 def test_swap_calls_swap_on_target() -> None:
     carry = _Carry()

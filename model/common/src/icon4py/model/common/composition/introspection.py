@@ -32,13 +32,6 @@ from icon4py.model.common.composition.step import Step
 from icon4py.model.common.states.spec import get_field_spec
 
 
-def _is_combinator(step: Step[Any]) -> bool:
-    return isinstance(
-        step,
-        _Chain | _Repeat | _When | _Foreach | _Sample | _Nested | _WithIndex,
-    )
-
-
 def _children(step: Step[Any]) -> Iterable[Step[Any]]:
     """Return immediate child steps that are themselves introspectable.
 
