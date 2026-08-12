@@ -178,6 +178,7 @@ class Icon4pyDriver:
             edsl_driver.build_time_integration_composition(
                 granules=self.granules,
                 derived_quantities=self._derived_quantities,
+                io_monitor=self.io_monitor,
             )(carry)
         finally:
             if self.io_monitor is not None:
@@ -188,6 +189,7 @@ class Icon4pyDriver:
         composition = edsl_driver.build_time_integration_composition(
             granules=self.granules,
             derived_quantities=self._derived_quantities,
+            io_monitor=self.io_monitor,
         )
         return show(composition)
 
@@ -196,6 +198,7 @@ class Icon4pyDriver:
         composition = edsl_driver.build_time_integration_composition(
             granules=self.granules,
             derived_quantities=self._derived_quantities,
+            io_monitor=self.io_monitor,
         )
         return to_graphviz(composition)
 
