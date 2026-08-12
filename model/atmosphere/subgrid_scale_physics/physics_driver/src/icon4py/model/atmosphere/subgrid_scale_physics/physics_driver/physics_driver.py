@@ -73,10 +73,38 @@ class PhysicsDriver:
         for process in self._processes:
             process.time_control.validate_interval(self._dtime)
 
-    def _get_composition(self) -> Step[PhysicsLoopState]:
+    @property
+    def processes(self) -> list[PhysicsProcess[Any, Any]]:
+        """The registered physics processes, in run order."""
+        return self._processes
+
+    @property
+    def composition(self) -> Step[PhysicsLoopState]:
+        """The physics composition (built once, then cached).
+
+        Public so drivers can embed it in a larger composition (e.g. via
+        ``nested``) for introspection, instead of only running it via ``run``.
+        """
         if self._composition is None:
             self._composition = build_physics_composition(self._processes)
         return self._composition
+
+    def make_carry(
+        self,
+        *,
+        prognostic: prognostic_state.PrognosticState,
+        tracers: tracer_states.TracerState,
+        dtime: datetime.timedelta,
+        simulation_current_datetime: datetime.datetime,
+    ) -> PhysicsLoopState:
+        """Build the physics loop carry, sharing this driver's sample cache."""
+        return PhysicsLoopState(
+            prognostic=prognostic,
+            tracers=tracers,
+            dtime=dtime,
+            simulation_current_datetime=simulation_current_datetime,
+            sample_cache=self.sample_cache,
+        )
 
     def run(
         self,
@@ -85,11 +113,10 @@ class PhysicsDriver:
         dtime: datetime.timedelta,
         simulation_current_datetime: datetime.datetime,
     ) -> None:
-        carry = PhysicsLoopState(
+        carry = self.make_carry(
             prognostic=prognostic,
             tracers=tracers,
             dtime=dtime,
             simulation_current_datetime=simulation_current_datetime,
-            sample_cache=self.sample_cache,
         )
-        self._get_composition()(carry)
+        self.composition(carry)

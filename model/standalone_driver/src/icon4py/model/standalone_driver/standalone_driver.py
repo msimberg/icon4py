@@ -359,7 +359,7 @@ def _assemble_run(
         grid=icon4py_driver.grid, allocator=allocator
     )
     if icon4py_driver.granules.physics is not None:
-        for process in icon4py_driver.granules.physics._processes:
+        for process in icon4py_driver.granules.physics.processes:
             if isinstance(process.state, muphys_state.State):
                 process.state.diagnostic = diagnostic_state
     assert icon4py_driver.granules.registry is not None

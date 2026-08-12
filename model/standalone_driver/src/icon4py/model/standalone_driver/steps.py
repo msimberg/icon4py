@@ -436,16 +436,15 @@ def build_physics_composition_step(physics_driver: PhysicsDriver | None) -> Step
         return named("physics_step", lambda c: None)
 
     def _enter(carry: DriverLoopState) -> PhysicsLoopState:
-        return PhysicsLoopState(
+        return physics_driver.make_carry(
             prognostic=carry.states.prognostics.next,
             tracers=carry.states.tracers.next,
             dtime=carry.config.driver.dtime,
             simulation_current_datetime=carry.clock.simulation_current_datetime,
-            sample_cache=physics_driver.sample_cache,
         )
 
     return nested(
-        physics_driver._get_composition(),
+        physics_driver.composition,
         enter=_enter,
         name="physics_step",
     )
