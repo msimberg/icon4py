@@ -45,7 +45,6 @@ class DriverServices:
 
 
 @dataclasses.dataclass
-@dataclasses.dataclass
 class DriverLoopState:
     """Mutable carry object for the time-integration composition."""
 
