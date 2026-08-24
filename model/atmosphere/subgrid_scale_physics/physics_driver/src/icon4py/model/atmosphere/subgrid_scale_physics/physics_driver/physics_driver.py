@@ -15,6 +15,7 @@ import datetime
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.composition import (
+    PhysicsCoupling,
     PhysicsLoopState,
     build_physics_composition,
 )
@@ -62,9 +63,11 @@ class PhysicsDriver:
         self,
         processes: list[PhysicsProcess[Any, Any]],
         dtime: datetime.timedelta,
+        coupling: PhysicsCoupling = PhysicsCoupling.SERIAL,
     ) -> None:
         self._processes = processes
         self._dtime = dtime
+        self._coupling = coupling
         self.sample_cache: dict[str, Any] = {}
         self._composition: Step[PhysicsLoopState] | None = None
         self._validate_intervals()
@@ -86,7 +89,7 @@ class PhysicsDriver:
         ``nested``) for introspection, instead of only running it via ``run``.
         """
         if self._composition is None:
-            self._composition = build_physics_composition(self._processes)
+            self._composition = build_physics_composition(self._processes, coupling=self._coupling)
         return self._composition
 
     def make_carry(

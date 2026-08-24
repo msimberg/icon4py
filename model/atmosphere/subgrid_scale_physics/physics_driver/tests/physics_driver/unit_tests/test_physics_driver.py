@@ -16,6 +16,7 @@ import datetime
 import pytest
 
 from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.composition import (
+    PhysicsCoupling,
     PhysicsLoopState,
     build_physics_composition,
 )
@@ -356,3 +357,142 @@ def test_driver_run_matches_composition() -> None:
 
     assert proc.component.call_count == 1
     assert len(proc.state.apply_calls) == 2
+
+
+class _ProbePrognostic:
+    """Mutable prognostic stand-in: apply increments a counter that gather reads."""
+
+    def __init__(self) -> None:
+        self.counter = 0
+
+
+@dataclasses.dataclass
+class ProbingPhysicsState(TypedPhysicsState[RecordingInput, RecordingOutput]):
+    """TypedPhysicsState whose apply mutates the shared prognostic and whose
+    gather records what the process read. Used to observe coupling order."""
+
+    prognostic: _ProbePrognostic
+    gather_seen: list[int] = dataclasses.field(default_factory=list)
+    apply_calls: list = dataclasses.field(default_factory=list)
+
+    def gather_from_prognostic(self, prognostic: object, tracers: object) -> RecordingInput:
+        assert prognostic is self.prognostic
+        self.gather_seen.append(self.prognostic.counter)
+        return RecordingInput(payload=None)
+
+    def apply_tendencies(self, outputs: RecordingOutput, dtime: datetime.timedelta) -> None:
+        self.apply_calls.append(outputs)
+        assert isinstance(outputs.payload["bump"], int)
+        self.prognostic.counter += outputs.payload["bump"]
+
+    def store_diagnostics(self, outputs: RecordingOutput) -> None:
+        raise AssertionError("not used")
+
+
+def _probe_process(name: str, bump: int, prognostic: _ProbePrognostic) -> PhysicsProcess:
+    return PhysicsProcess(
+        name=name,
+        component=RecordingComponent(outputs={"bump": bump}),  # type: ignore[arg-type]
+        state=ProbingPhysicsState(prognostic=prognostic),
+        time_control=_tc(),
+        apply_forcing=True,
+    )
+
+
+def _probe_carry(prognostic: _ProbePrognostic) -> PhysicsLoopState:
+    return PhysicsLoopState(
+        prognostic=prognostic,  # type: ignore[arg-type]
+        tracers="tracers",  # type: ignore[arg-type]
+        dtime=_DT,
+        simulation_current_datetime=_T0,
+        sample_cache={},
+    )
+
+
+def test_composition_serial_coupling_is_gauss_seidel() -> None:
+    prognostic = _ProbePrognostic()
+    proc_a = _probe_process("A", bump=1, prognostic=prognostic)
+    proc_b = _probe_process("B", bump=10, prognostic=prognostic)
+    composition = build_physics_composition([proc_a, proc_b], coupling=PhysicsCoupling.SERIAL)
+
+    composition(_probe_carry(prognostic))
+
+    # Gauss-Seidel: B gathers the state after A's apply.
+    assert proc_a.state.gather_seen == [0]
+    assert proc_b.state.gather_seen == [1]
+    assert prognostic.counter == 11
+
+
+def test_composition_parallel_coupling_is_jacobi() -> None:
+    prognostic = _ProbePrognostic()
+    proc_a = _probe_process("A", bump=1, prognostic=prognostic)
+    proc_b = _probe_process("B", bump=10, prognostic=prognostic)
+    composition = build_physics_composition([proc_a, proc_b], coupling=PhysicsCoupling.PARALLEL)
+
+    composition(_probe_carry(prognostic))
+
+    # Jacobi: both processes gather the same step-entry state; applies follow
+    # after all gathers. (Per-process applies remain per-process here: a single
+    # accumulated apply is the accumulator-buffer extension, not this test.)
+    assert proc_a.state.gather_seen == [0]
+    assert proc_b.state.gather_seen == [0]
+    assert prognostic.counter == 11
+
+
+def test_composition_parallel_skips_disabled_process() -> None:
+    proc = _make_process(
+        "disabled",
+        {"tend_temperature": "X"},
+        time_control=_tc(enable_process=False),
+    )
+    composition = build_physics_composition([proc], coupling=PhysicsCoupling.PARALLEL)
+
+    composition(_make_carry())
+
+    assert proc.component.call_count == 0
+    assert proc.state.apply_calls == []
+
+
+def test_composition_parallel_out_of_window_process_neither_gathers_nor_applies() -> None:
+    future = _T0 + datetime.timedelta(days=1)
+    proc = _make_process(
+        "future",
+        {"tend_temperature": "X"},
+        time_control=_tc(start=future, end=future + datetime.timedelta(hours=1)),
+    )
+    composition = build_physics_composition([proc], coupling=PhysicsCoupling.PARALLEL)
+
+    composition(_make_carry())
+
+    assert proc.component.call_count == 0
+    assert proc.state.apply_calls == []
+
+
+def test_composition_parallel_recycles_cached_outputs_between_firing_steps() -> None:
+    proc = _make_process("p", {"tend_temperature": "FRESH"}, time_control=_tc(interval=2 * _DT))
+    composition = build_physics_composition([proc], coupling=PhysicsCoupling.PARALLEL)
+    cache: dict[str, object] = {}
+
+    composition(_make_carry(sample_cache=cache))
+    composition(_make_carry(sample_cache=cache, simulation_current_datetime=_T0 + _DT))
+
+    assert proc.component.call_count == 1
+    assert len(proc.state.apply_calls) == 2
+    assert proc.state.apply_calls[1][0].payload == {"tend_temperature": "FRESH"}
+
+
+def test_driver_parallel_single_process_matches_serial_result() -> None:
+    # Single-process sanity: for one process both couplings run gather-then-apply;
+    # PARALLEL composes the same steps in a different shape.
+    proc = _make_process("p", {"tend_temperature": "FRESH"})
+    driver = PhysicsDriver([proc], dtime=_DT, coupling=PhysicsCoupling.PARALLEL)
+
+    driver.run(
+        prognostic="prog",  # type: ignore[arg-type]
+        tracers="tracers",  # type: ignore[arg-type]
+        dtime=_DT,
+        simulation_current_datetime=_T0,
+    )
+
+    assert proc.component.call_count == 1
+    assert len(proc.state.apply_calls) == 1

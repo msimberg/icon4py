@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import enum
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from icon4py.model.common.components.components import Component
@@ -24,6 +25,25 @@ if TYPE_CHECKING:
     from icon4py.model.atmosphere.subgrid_scale_physics.physics_driver.physics_driver import (
         PhysicsProcess,
     )
+
+
+class PhysicsCoupling(enum.Enum):
+    """How physics processes exchange with the prognostic state within one step.
+
+    SERIAL (Gauss-Seidel): each process gathers from the state left by the
+    previous process's apply. ICON's default coupling, and the default here:
+    it is the validated variant.
+
+    PARALLEL (Jacobi): every process gathers from the same step-entry state,
+    then all applies run after the last compute. The composition machinery
+    expresses the schedule; a single accumulated apply (sum all tendencies,
+    one exact-EOS write back, as in PR C2SM/icon4py#1436) needs accumulator
+    buffers this branch does not have: per-process applies remain
+    per-process.
+    """
+
+    SERIAL = enum.auto()
+    PARALLEL = enum.auto()
 
 
 @dataclasses.dataclass
@@ -80,18 +100,26 @@ def store_diagnostics_step(
     return named(f"store_diagnostics:{process_name}", _store)
 
 
-def _build_process_step(
+def _process_parts(
     process: PhysicsProcess[Any, Any],
-) -> Step[PhysicsLoopState]:
-    """Build the step chain for a single physics process."""
+) -> tuple[Step[PhysicsLoopState], Step[PhysicsLoopState] | None]:
+    """The windowed compute phase and (optional) write-back phase for one process.
+
+    The compute phase runs ``component.run`` on inputs gathered from the carry
+    (subject to the ``sample`` cadence) and caches the typed outputs. The
+    write-back phase is present only when ``apply_forcing`` is true: it writes the
+    cached tendencies/diagnostics back to the prognostic state. Diagnostic-mode
+    processes (``apply_forcing=False``) instead store diagnostics and need no
+    separate apply phase; their store is part of the compute phase.
+    """
     if not process.time_control.enable_process:
-        return named(f"{process.name}:disabled", lambda c: None)
+        return named(f"{process.name}:disabled", lambda c: None), None
 
     interval = process.time_control.interval
     if interval <= datetime.timedelta(0):
         # A non-positive interval can never fire; the driver already validates
         # intervals at construction, so this path is defensive.
-        return named(f"{process.name}:never_fires", lambda c: None)
+        return named(f"{process.name}:never_fires", lambda c: None), None
 
     gather_call = gather_and_call_step(process.component, process.state, process.name)
 
@@ -101,30 +129,54 @@ def _build_process_step(
     def _clock(carry: PhysicsLoopState) -> datetime.timedelta:
         return carry.simulation_current_datetime - process.time_control.start_date
 
-    if process.apply_forcing:
-        post_sample_chain = apply_tendencies_step(process.state, process.name)
-    else:
-        post_sample_chain = store_diagnostics_step(process.state, process.name)
-
-    return when(
+    compute = when(
         _in_window,
-        then=chain(
-            sample(
-                gather_call,
-                every=interval,
-                clock=_clock,
-                key=process.name,
-                cache=lambda c: c.sample_cache,
-            ),
-            post_sample_chain,
-            name=f"{process.name}:body",
+        then=sample(
+            gather_call,
+            every=interval,
+            clock=_clock,
+            key=process.name,
+            cache=lambda c: c.sample_cache,
         ),
         name=process.name,
     )
 
+    if not process.apply_forcing:
+        store = when(
+            _in_window,
+            then=store_diagnostics_step(process.state, process.name),
+            name=f"{process.name}:store",
+        )
+        return chain(compute, store, name=f"{process.name}:body"), None
+
+    apply = when(
+        _in_window,
+        then=apply_tendencies_step(process.state, process.name),
+        name=f"{process.name}:apply",
+    )
+    return compute, apply
+
 
 def build_physics_composition(
     processes: list[PhysicsProcess[Any, Any]],
+    coupling: PhysicsCoupling = PhysicsCoupling.SERIAL,
 ) -> Step[PhysicsLoopState]:
-    """Build the eDSL composition that runs each process in order."""
-    return chain(*[_build_process_step(process) for process in processes], name="physics")
+    """Build the eDSL composition that runs the registered processes.
+
+    SERIAL (Gauss-Seidel, default): each process's compute phase is followed
+    immediately by its write-back, so later processes read the state left by
+    earlier applies. PARALLEL (Jacobi): all compute phases run first, every
+    process gathering the same step-entry state; all write-backs run after the
+    last compute.
+    """
+    phases = [_process_parts(process) for process in processes]
+    if coupling is PhysicsCoupling.PARALLEL:
+        steps = [compute for compute, _ in phases] + [
+            apply for _, apply in phases if apply is not None
+        ]
+    else:
+        steps = [
+            chain(compute, apply, name=f"{name}:body") if apply is not None else compute
+            for (compute, apply), name in zip(phases, (p.name for p in processes), strict=True)
+        ]
+    return chain(*steps, name="physics")
