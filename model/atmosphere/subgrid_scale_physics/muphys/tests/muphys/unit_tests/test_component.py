@@ -86,10 +86,10 @@ def test_run_reports_tendencies_and_leaves_the_inputs_untouched(grid: base_grid.
     out = component.run(inputs)
 
     dt = DTIME.total_seconds()
-    np.testing.assert_allclose(out.tend_temperature.data.asnumpy(), 1.0 / dt, rtol=1e-12)
-    np.testing.assert_allclose(out.tend_qv.data.asnumpy(), 2.0 / dt, rtol=1e-12)
-    np.testing.assert_array_equal(out.tend_qc.data.asnumpy(), 0.0)
-    np.testing.assert_array_equal(out.pflx.data.asnumpy(), 3.0)
+    np.testing.assert_allclose(out.tendencies.tend_temperature.data.asnumpy(), 1.0 / dt, rtol=1e-12)
+    np.testing.assert_allclose(out.tendencies.tend_qv.data.asnumpy(), 2.0 / dt, rtol=1e-12)
+    np.testing.assert_array_equal(out.tendencies.tend_qc.data.asnumpy(), 0.0)
+    np.testing.assert_array_equal(out.fluxes.pflx.data.asnumpy(), 3.0)
     # the granule ran on private copies; the static and read-only fields went in as given
     np.testing.assert_array_equal(inputs.te.data.asnumpy(), 280.0)
     np.testing.assert_array_equal(inputs.qv.data.asnumpy(), 1e-3)
@@ -107,4 +107,4 @@ def test_run_writes_where_the_caller_says(grid: base_grid.Grid) -> None:
     out = component.run(_inputs(grid), out=view)
 
     assert out is view
-    np.testing.assert_array_equal(view.pflx.data.asnumpy(), 3.0)
+    np.testing.assert_array_equal(view.fluxes.pflx.data.asnumpy(), 3.0)

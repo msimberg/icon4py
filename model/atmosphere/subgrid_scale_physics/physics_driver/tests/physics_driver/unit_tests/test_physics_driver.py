@@ -34,26 +34,42 @@ from .utils import (
 )
 
 
-class MoistOutput(fw.State):
+class MoistTendencies(states.TendencyOutput):
+    tend_qv: fw.Field[qty.TendencyOfQvOnCellK]
+
+
+class MoistOutput(states.ProcessOutput):
     """A process output with a tendency and a diagnostic."""
 
-    tend_qv: fw.Field[qty.TendencyOfQvOnCellK]
+    tendencies: MoistTendencies
     pflx: fw.Field[qty.PrecipitationFluxOnCellK]
 
 
-class ThermoOutput(fw.State):
+class ThermoTendencies(states.TendencyOutput):
     tend_qv: fw.Field[qty.TendencyOfQvOnCellK]
     tend_temperature: fw.Field[qty.TendencyOfTemperatureOnCellK]
     tend_w: fw.Field[qty.TendencyOfWOnCellKHalf]
 
 
-class WindOutput(fw.State):
+class ThermoOutput(states.ProcessOutput):
+    tendencies: ThermoTendencies
+
+
+class WindTendencies(states.TendencyOutput):
     tend_u: fw.Field[qty.TendencyOfUOnCellK]
     tend_v: fw.Field[qty.TendencyOfVOnCellK]
 
 
-class LoneWindOutput(fw.State):
+class WindOutput(states.ProcessOutput):
+    tendencies: WindTendencies
+
+
+class LoneWindTendencies(states.TendencyOutput):
     tend_u: fw.Field[qty.TendencyOfUOnCellK]
+
+
+class LoneWindOutput(states.ProcessOutput):
+    tendencies: LoneWindTendencies
 
 
 @pytest.fixture

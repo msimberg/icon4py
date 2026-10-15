@@ -33,7 +33,7 @@ def test_tracer_state_allocates_the_configured_tracers_only(grid: base_grid.Grid
     tracers = fw.allocate(states.TracerState, grid, allocator=None, only=config.active_names)
     assert [d.name for d, _ in tracers.leaves()] == ["qv", "qc"]
     assert tracers.qi is None
-    assert all(d.optional for d in states.TracerState.declarations())
+    assert all(d.optional for d in states.TracerState.declarations() if isinstance(d, fw.Decl))
 
 
 def test_tracer_state_copy_allocates_new_buffers_for_the_active_tracers(

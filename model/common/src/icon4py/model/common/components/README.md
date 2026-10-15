@@ -16,12 +16,15 @@ fields. The design and its trade-offs are in C2SM/icon4py-knowledge `mwe/compone
   a phantom, invariant type parameter: `Field[VnOnEdgeK]` and `Field[ThetaVOnCellK]` are
   different types to the checkers and the same array to gt4py. Stencils read `.data`.
 - `State`: a frozen, keyword-only dataclass of typed leaves. A leaf annotated
-  `Field[Q] | None` is optional: `allocate` may leave it None. `declarations()` and
-  `leaves()` are internal to the components package; consumers use the named operations.
+  `Field[Q] | None` is optional: `allocate` may leave it None. A leaf annotated with
+  another `State` class is a group: `allocate`, `copy`, `leaves` and the declarations
+  recurse into it, so the group's leaves behave like the class's own. `declarations()`
+  and `leaves()` are internal to the components package; consumers use the named
+  operations.
 - The named operations over the leaves: `fields()` (the present leaves by name, the
   verification view), `fw.copy_into(target, source)` (the in-place, aliasing-aware copy),
   `file_variables(aliases=...)` (the output file variable of every leaf) and `Sums` (the
-  running elementwise sums of the fields whose quantity is a given one).
+  running elementwise sums of a state's fields).
 - `allocate(State, grid, allocator, only=...)` makes a zero field per declaration (`only`
   names the optional leaves to allocate, the others stay None); `zeros(Q, grid, allocator)`
   makes one field; `copy(state, allocator)` copies the present leaves.

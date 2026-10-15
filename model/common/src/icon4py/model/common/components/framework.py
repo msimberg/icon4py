@@ -142,6 +142,14 @@ class Decl:
     optional: bool = False
 
 
+@dataclasses.dataclass(frozen=True)
+class Group:
+    """One nested `State` group of a `State` class: its name and its state class."""
+
+    name: str
+    state: type[State]
+
+
 @dataclass_transform(frozen_default=True, kw_only_default=True, eq_default=False)
 class State:
     """
@@ -154,6 +162,9 @@ class State:
     `declarations` and `leaves` are internal to the components package: consumers use
     the named operations (`allocate`, `copy`, `copy_into`, `fields`, `file_variables`,
     `Sums`).
+    A leaf annotated with another `State` class is a group: `allocate`, `copy`, `leaves`
+    and the declarations recurse into it, so the group's leaves behave like the class's
+    own. The group classes sit at module level, so the annotations resolve.
     """
 
     def __init_subclass__(cls) -> None:
@@ -161,20 +172,23 @@ class State:
         dataclasses.dataclass(frozen=True, eq=False, kw_only=True)(cls)
 
     @classmethod
-    def declarations(cls) -> tuple[Decl, ...]:
+    def declarations(cls) -> tuple[Decl | Group, ...]:
         """
-        The `Field` leaves of the class, in declaration order; needs no values.
+        The `Field` leaves and `State` groups of the class, in declaration order; needs
+        no values.
 
         Internal to the components package: consumers use the named operations.
         """
         if cls not in _DECLARATIONS:
             hints = typing.get_type_hints(cls)
-            found = []
+            found: list[Decl | Group] = []
             for field in dataclasses.fields(cls):  # type: ignore[arg-type]
                 hint, optional = _without_none(hints[field.name])
                 if typing.get_origin(hint) is Field:
                     (quantity,) = typing.get_args(hint)
                     found.append(Decl(field.name, quantity, optional))
+                elif isinstance(hint, type) and issubclass(hint, State):
+                    found.append(Group(field.name, hint))
             _DECLARATIONS[cls] = tuple(found)
         return _DECLARATIONS[cls]
 
@@ -184,17 +198,20 @@ class State:
 
         Internal to the components package: consumers use the named operations.
         """
-        for declaration in self.declarations():
-            field = getattr(self, declaration.name)
+        for entry in self.declarations():
+            if isinstance(entry, Group):
+                yield from getattr(self, entry.name).leaves()
+                continue
+            field = getattr(self, entry.name)
             if field is not None:
-                yield declaration, field
+                yield entry, field
 
     def fields(self) -> dict[str, Field[Any]]:
         """The present leaves by name, in declaration order: the verification view."""
         return {declaration.name: field for declaration, field in self.leaves()}
 
 
-_DECLARATIONS: dict[type[State], tuple[Decl, ...]] = {}
+_DECLARATIONS: dict[type[State], tuple[Decl | Group, ...]] = {}
 
 
 def _without_none(hint: Any) -> tuple[Any, bool]:
@@ -225,7 +242,11 @@ def allocate[S: State](
     leaves to allocate; the other optional leaves are None. Without it every leaf is allocated.
     """
     values: dict[str, Any] = {}
-    for declaration in cls.declarations():
+    for entry in cls.declarations():
+        if isinstance(entry, Group):
+            values[entry.name] = allocate(entry.state, grid, allocator, fill=fill, only=only)
+            continue
+        declaration = entry
         if declaration.optional and only is not None and declaration.name not in only:
             values[declaration.name] = None
             continue
@@ -239,12 +260,16 @@ def allocate[S: State](
 
 def copy[S: State](state: S, allocator: gtx_typing.Allocator | None) -> S:
     """A new state with a copy of each present leaf on the allocator; the plain leaves are shared."""
-    copies: dict[str, Any] = {
-        declaration.name: Field(
-            declaration.quantity, data_allocation.reallocate(field.data, allocator=allocator)
-        )
-        for declaration, field in state.leaves()
-    }
+    copies: dict[str, Any] = {}
+    for entry in state.__class__.declarations():
+        if isinstance(entry, Group):
+            copies[entry.name] = copy(getattr(state, entry.name), allocator)
+            continue
+        field = getattr(state, entry.name)
+        if field is not None:
+            copies[entry.name] = Field(
+                entry.quantity, data_allocation.reallocate(field.data, allocator=allocator)
+            )
     copied: S = dataclasses.replace(typing.cast(Any, state), **copies)
     return copied
 
@@ -257,11 +282,26 @@ def copy_into(target: State, source: State) -> None:
     from a view of itself. The source must hold every leaf of `target`; the plain
     leaves are untouched.
     """
-    for declaration, target_field in target.leaves():
-        source_field: Field[Any] = getattr(source, declaration.name)
+    for entry in target.declarations():
+        if isinstance(entry, Group):
+            copy_into(getattr(target, entry.name), getattr(source, entry.name))
+            continue
+        target_field: Field[Any] | None = getattr(target, entry.name)
+        source_field: Field[Any] | None = getattr(source, entry.name)
+        if target_field is None or source_field is None:
+            continue
         if target_field.data is not source_field.data:
             buffer: Any = target_field.data.ndarray  # NDArrayObject declares no __setitem__
             buffer[...] = source_field.data.ndarray
+
+
+def _flat_declarations(cls: type[State]) -> Iterator[Decl]:
+    """The `Decl` entries of `cls`, descending into the groups."""
+    for entry in cls.declarations():
+        if isinstance(entry, Group):
+            yield from _flat_declarations(entry.state)
+        else:
+            yield entry
 
 
 def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -272,7 +312,7 @@ def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None
     a leaf with neither is an error, as are two leaves writing the same variable.
     """
     variables: dict[str, str] = {}
-    for declaration in cls.declarations():
+    for declaration in _flat_declarations(cls):
         variable = (aliases or {}).get(declaration.name, declaration.quantity.standard_name)
         if variable is None:
             raise ValueError(f"leaf '{declaration.name}' of {cls.__name__} has no variable name")
@@ -293,16 +333,11 @@ class Sums:
         self._allocator = allocator
         self._sums: dict[str, Field[Any]] = {}
 
-    def add(self, state: State, *, quantities: type[Quantity] | None = None) -> None:
+    def add(self, state: State) -> None:
         """
-        Add every field of `state` whose quantity is a `quantities` subclass.
-
-        Every quantity qualifies when none is given; a sum is made when its name is
-        first seen.
+        Add every field of `state`; a sum is made when its name is first seen.
         """
         for declaration, field in state.leaves():
-            if quantities is not None and not issubclass(declaration.quantity, quantities):
-                continue
             if (total := self._sums.get(declaration.name)) is None:
                 total = self._sums[declaration.name] = zeros(
                     declaration.quantity, self._grid, self._allocator

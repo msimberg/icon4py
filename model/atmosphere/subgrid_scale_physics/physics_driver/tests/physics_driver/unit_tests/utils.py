@@ -129,11 +129,11 @@ class RecordingStep:
     """A process step returning a fixed output and recording the entry states it was given,
     with a copy of the qv each one read."""
 
-    output: fw.State
+    output: states.ProcessOutput
     entries: list[physics_state.EntryState] = dataclasses.field(default_factory=list)
     qv_read: list[np.ndarray] = dataclasses.field(default_factory=list)
 
-    def __call__(self, entry: physics_state.EntryState) -> fw.State:
+    def __call__(self, entry: physics_state.EntryState) -> states.ProcessOutput:
         self.entries.append(entry)
         self.qv_read.append(entry.qv.data.asnumpy().copy())
         return self.output

@@ -86,8 +86,10 @@ def test_zeros_resolves_the_precision_at_allocation(
     assert fw.zeros(Pressure, grid, allocator=None).data.ndarray.dtype == np.float64
 
 
-def test_state_declarations_list_the_field_leaves_only(grid: base_grid.Grid) -> None:
-    assert [(d.name, d.quantity, d.optional) for d in Column.declarations()] == [
+def test_state_declarations_list_the_field_leaves_and_groups(grid: base_grid.Grid) -> None:
+    assert [
+        (d.name, d.quantity, d.optional) for d in Column.declarations() if isinstance(d, fw.Decl)
+    ] == [
         ("pressure", Pressure, False),
         ("salt", Salt, False),
     ]
@@ -102,10 +104,10 @@ def test_state_declarations_list_the_field_leaves_only(grid: base_grid.Grid) -> 
 
 
 def test_optional_leaves_are_declared_and_skipped_when_absent(grid: base_grid.Grid) -> None:
-    assert [(d.name, d.optional) for d in Tracers.declarations()] == [
-        ("pressure", False),
-        ("salt", True),
-        ("vt", True),
+    assert [d.optional for d in Tracers.declarations() if isinstance(d, fw.Decl)] == [
+        False,
+        True,
+        True,
     ]
     tracers = fw.allocate(Tracers, grid, allocator=None, only=("vt",))
     assert tracers.salt is None
@@ -158,8 +160,8 @@ def test_file_variables_names_every_leaf() -> None:
         fw.file_variables(Twins)
 
 
-def test_sums_add_by_quantity_and_zero_in_place(grid: base_grid.Grid) -> None:
-    tracers = fw.allocate(Tracers, grid, allocator=None, fill=lambda name, shape: 1.0)
+def test_sums_add_and_zero_in_place(grid: base_grid.Grid) -> None:
+    tracers = fw.allocate(Tracers, grid, allocator=None, fill=lambda name, dims: 1.0)
     sums = fw.Sums(grid, None)
 
     sums.add(tracers)
@@ -172,10 +174,36 @@ def test_sums_add_by_quantity_and_zero_in_place(grid: base_grid.Grid) -> None:
     sums.zero()
     assert np.all(np.asarray(salt.data.ndarray) == 0.0)
 
-    only_salt = fw.Sums(grid, None)
-    only_salt.add(tracers, quantities=Salt)
-    assert only_salt.field("vt") is None
-    assert only_salt.field("salt") is not None
+
+def test_groups_recurse_in_allocate_fields_and_copy(grid: base_grid.Grid) -> None:
+    class Inner(fw.State):
+        salt: fw.Field[Salt]
+
+    class Outer(fw.State):
+        inner: Inner
+        pressure: fw.Field[Pressure]
+
+    outer = fw.allocate(Outer, grid, allocator=None, fill=lambda name, dims: float(len(name)))
+    assert np.all(np.asarray(outer.inner.salt.data.ndarray) == 4.0)
+    assert np.all(np.asarray(outer.pressure.data.ndarray) == 8.0)
+    assert list(outer.fields()) == ["salt", "pressure"]
+
+    copied = fw.copy(outer, allocator=None)
+    assert copied.inner.salt is not outer.inner.salt
+    assert copied.pressure is not outer.pressure
+
+
+def test_file_variables_descends_into_groups() -> None:
+    class Height(fw.Quantity, dims=(dims.CellDim,), standard_name="height", units="m"): ...
+
+    class Inner(fw.State):
+        height: fw.Field[Height]
+
+    class Outer(fw.State):
+        inner: Inner
+        pressure: fw.Field[Pressure]
+
+    assert fw.file_variables(Outer) == {"height": "height", "air_pressure": "pressure"}
 
 
 def test_allocate_follows_the_declared_dims(grid: base_grid.Grid) -> None:

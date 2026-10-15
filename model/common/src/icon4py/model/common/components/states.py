@@ -33,11 +33,23 @@ __all__ = [
     "DycoreDiagnostics",
     "DycoreForcing",
     "PrepAdvection",
+    "ProcessOutput",
     "PrognosticState",
     "StepInfo",
+    "TendencyOutput",
     "TracerConfig",
     "TracerState",
 ]
+
+
+class TendencyOutput(fw.State):
+    """The tendency leaves a physics process reports; each process extends this base."""
+
+
+class ProcessOutput(fw.State):
+    """A physics process output: its tendency group and whatever else it reports."""
+
+    tendencies: TendencyOutput
 
 
 class PrognosticState(fw.State):
