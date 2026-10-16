@@ -160,18 +160,26 @@ def test_file_variables_names_every_leaf() -> None:
         fw.file_variables(Twins)
 
 
-def test_sums_add_and_zero_in_place(grid: base_grid.Grid) -> None:
+def test_add_into_sums_into_optional_leaves_and_zero_keeps_them(grid: base_grid.Grid) -> None:
+    class Totals(fw.State):
+        salt: fw.Field[Salt] | None = None
+        pressure: fw.Field[Pressure] | None = None
+        vt: fw.Field[Vt] | None = None
+
+    totals = fw.allocate(Totals, grid, allocator=None, only=())
+    assert list(totals) == []
+
     tracers = fw.allocate(Tracers, grid, allocator=None, fill=lambda name, dims: 1.0)
-    sums = fw.Sums(grid, None)
+    fw.add_into(totals, tracers, allocator=None)
+    fw.add_into(totals, tracers, allocator=None)
+    assert list(totals) == ["salt", "pressure", "vt"]
 
-    sums.add(tracers)
-    sums.add(tracers)
-
-    salt = sums.field("salt")
+    salt = totals.salt
     assert salt is not None
     assert np.all(np.asarray(salt.data.ndarray) == 2.0)
 
-    sums.zero()
+    fw.zero(totals)
+    assert list(totals) == ["salt", "pressure", "vt"]
     assert np.all(np.asarray(salt.data.ndarray) == 0.0)
 
 

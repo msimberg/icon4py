@@ -44,13 +44,14 @@ __all__ = [
     "PredictorCorrectorPair",
     "Quantity",
     "State",
-    "Sums",
     "Tendency",
     "TimeStepPair",
+    "add_into",
     "allocate",
     "copy",
     "copy_into",
     "file_variables",
+    "zero",
     "zeros",
 ]
 
@@ -162,7 +163,7 @@ class State(Mapping[str, Field[Any]]):
     A state is a read-only `Mapping` from leaf name to field: `state[name]`, `for name in
     state`, `state.items()`. `declarations` and `leaves` are internal to the components
     package: consumers use the mapping and the named operations (`allocate`, `copy`,
-    `copy_into`, `file_variables`, `Sums`).
+    `copy_into`, `file_variables`, `add_into`, `zero`).
     A leaf annotated with another `State` class is a group: `allocate`, `copy`, `leaves`
     and the declarations recurse into it, so the group's leaves behave like the class's
     own. The group classes sit at module level, so the annotations resolve.
@@ -337,39 +338,32 @@ def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None
     return variables
 
 
-class Sums:
-    """The running elementwise sums of fields, one per leaf name, made when first seen."""
+def add_into(target: State, source: State, allocator: gtx_typing.Allocator | None) -> None:
+    """
+    Add every field of `source` into the matching leaf of `target`, in place.
 
-    def __init__(self, grid: base_grid.Grid, allocator: gtx_typing.Allocator | None) -> None:
-        self._grid = grid
-        self._allocator = allocator
-        self._sums: dict[str, Field[Any]] = {}
+    `target` is a state of optional leaves that declares every name `source` may hold: a
+    leaf that is None is made first, as a copy of the source's field, so a present leaf
+    means "seen at least once" across steps. The plain leaves are untouched.
+    """
+    for declaration, field in source.leaves():
+        total: Field[Any] | None = getattr(target, declaration.name)
+        if total is None:
+            total = Field(
+                declaration.quantity,
+                data_allocation.reallocate(field.data, allocator=allocator),
+            )
+            object.__setattr__(target, declaration.name, total)
+            continue
+        buffer: Any = total.data.ndarray  # NDArrayObject declares no __setitem__
+        buffer[...] += field.data.ndarray
 
-    def add(self, state: State) -> None:
-        """
-        Add every field of `state`; a sum is made when its name is first seen.
-        """
-        for declaration, field in state.leaves():
-            if (total := self._sums.get(declaration.name)) is None:
-                total = self._sums[declaration.name] = zeros(
-                    declaration.quantity, self._grid, self._allocator
-                )
-            buffer: Any = total.data.ndarray  # NDArrayObject declares no __setitem__
-            buffer[...] += field.data.ndarray
 
-    def field(self, name: str) -> Field[Any] | None:
-        """The sum of `name`, or None when no added field had that name."""
-        return self._sums.get(name)
-
-    def names(self) -> tuple[str, ...]:
-        """The names of the sums made so far."""
-        return tuple(self._sums)
-
-    def zero(self) -> None:
-        """Set every sum to zero, keeping the buffers."""
-        for total in self._sums.values():
-            buffer: Any = total.data.ndarray  # NDArrayObject declares no __setitem__
-            buffer[...] = 0.0
+def zero(state: State) -> None:
+    """Set every present leaf of `state` to zero, in place, keeping the buffers and the Nones."""
+    for _, field in state.leaves():
+        buffer: Any = field.data.ndarray  # NDArrayObject declares no __setitem__
+        buffer[...] = 0.0
 
 
 class Component:

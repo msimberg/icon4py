@@ -76,6 +76,25 @@ def _present[Q: fw.Quantity](field: fw.Field[Q] | None) -> fw.Field[Q]:
     return field
 
 
+class TendencySums(fw.State):
+    """
+    The summed tendencies of one step, one optional leaf per tendency the driver applies.
+
+    A leaf is None until some process reports it; `zero` keeps the presence across steps.
+    """
+
+    tend_qv: fw.Field[qty.TendencyOfQvOnCellK] | None = None
+    tend_qc: fw.Field[qty.TendencyOfQcOnCellK] | None = None
+    tend_qi: fw.Field[qty.TendencyOfQiOnCellK] | None = None
+    tend_qr: fw.Field[qty.TendencyOfQrOnCellK] | None = None
+    tend_qs: fw.Field[qty.TendencyOfQsOnCellK] | None = None
+    tend_qg: fw.Field[qty.TendencyOfQgOnCellK] | None = None
+    tend_temperature: fw.Field[qty.TendencyOfTemperatureOnCellK] | None = None
+    tend_u: fw.Field[qty.TendencyOfUOnCellK] | None = None
+    tend_v: fw.Field[qty.TendencyOfVOnCellK] | None = None
+    tend_w: fw.Field[qty.TendencyOfWOnCellKHalf] | None = None
+
+
 class PhysicsDriver(fw.Component):
     """
     Runs the physics processes under parallel coupling (ICON AES's aes_phy_main).
@@ -131,8 +150,8 @@ class PhysicsDriver(fw.Component):
         self.processes = tuple(processes)
         # the diagnostics the processes read, derived here each step
         self.diagnostics = fw.allocate(states.Diagnostics, grid, self.allocator)
-        # one sum per tendency the processes emit, made when first seen
-        self.tendency_sums = fw.Sums(grid, self.allocator)
+        # the summed tendencies of the step; a leaf appears when a process first reports it
+        self.tendency_sums = fw.allocate(TendencySums, grid, self.allocator, only=())
         # the last output of each process, reused on the steps it is not active
         # TODO(jcanton): part 02 fix this. Key by the process's component (identity), once the
         # process holds it, and drop `PhysicsProcess.name`, which exists only for this key.
@@ -239,7 +258,7 @@ class PhysicsDriver(fw.Component):
     def run(self, inputs: Input, out: Output | None = None) -> Output:
         out = self.buffers(out)
         entry = self._diagnose(inputs)
-        self.tendency_sums.zero()
+        fw.zero(self.tendency_sums)
         # the time control reads the start of the step being integrated
         step_start = inputs.simulation_current_datetime - inputs.dtime
         for process in self.processes:
@@ -252,7 +271,7 @@ class PhysicsDriver(fw.Component):
             # is no output to reuse yet; otherwise its last output is accumulated again
             if time_control.is_active(step_start) or process.name not in self.outputs:
                 self.outputs[process.name] = process.step(entry)
-            self.tendency_sums.add(self.outputs[process.name].tendencies)
+            fw.add_into(self.tendency_sums, self.outputs[process.name].tendencies, self.allocator)
         self._apply(entry, inputs.dtime.total_seconds(), out)
         return out
 
@@ -323,7 +342,7 @@ class PhysicsDriver(fw.Component):
 
         # 1. tracers: q += dt * sum of the tendencies (mo_interface_iconam_aes:513)
         for name in states.TRACERS:
-            if (tendency := sums.field(f"tend_{name}")) is not None:
+            if (tendency := sums.get(f"tend_{name}")) is not None:
                 tracer = _present(getattr(out, name)).data
                 self._apply_tendency(
                     field_a=tracer, coeff=dt_seconds, field_b=tendency.data, output_field=tracer
@@ -331,7 +350,7 @@ class PhysicsDriver(fw.Component):
 
         # 2. temperature -> exner/theta_v: one exact-EOS update from the entry temperature plus
         #    the summed tendency, with the final (post step 1) moisture
-        if (tend_temperature := sums.field("tend_temperature")) is not None:
+        if (tend_temperature := sums.tend_temperature) is not None:
             self._apply_tendency(
                 field_a=entry.temperature.data,
                 coeff=dt_seconds,
@@ -360,7 +379,7 @@ class PhysicsDriver(fw.Component):
             )
 
         # 3. winds: one projection of the summed (u, v) tendencies onto the edge normals
-        tend_u, tend_v = sums.field("tend_u"), sums.field("tend_v")
+        tend_u, tend_v = sums.tend_u, sums.tend_v
         if (tend_u is None) != (tend_v is None):
             raise ValueError(
                 "the horizontal wind tendencies are applied as a pair; got only"
@@ -376,7 +395,7 @@ class PhysicsDriver(fw.Component):
             )
 
         # 4. w, on half levels
-        if (tend_w := sums.field("tend_w")) is not None:
+        if (tend_w := sums.tend_w) is not None:
             self._apply_tendency_w(
                 field_a=out.w.data,
                 coeff=dt_seconds,

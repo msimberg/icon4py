@@ -23,8 +23,10 @@ fields. The design and its trade-offs are in C2SM/icon4py-knowledge `mwe/compone
   operations.
 - A state is a read-only `Mapping` from leaf name to field: `state[name]`, `for name in state`, `state.items()` (the verification view).
 - The named operations over the leaves: `fw.copy_into(target, source)` (the in-place,
-  aliasing-aware copy), `file_variables(aliases=...)` (the output file variable of every
-  leaf) and `Sums` (the running elementwise sums of a state's fields).
+  aliasing-aware copy), `fw.add_into(target, source, allocator)` (the in-place elementwise
+  sums into a state of optional leaves, a leaf appearing when first seen), `fw.zero(state)`
+  (in place, keeping the buffers and the Nones) and `file_variables(aliases=...)` (the
+  output file variable of every leaf).
 - `allocate(State, grid, allocator, only=...)` makes a zero field per declaration (`only`
   names the optional leaves to allocate, the others stay None); `zeros(Q, grid, allocator)`
   makes one field; `copy(state, allocator)` copies the present leaves.
