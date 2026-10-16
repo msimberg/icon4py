@@ -13,7 +13,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import gt4py.next as gtx
 
@@ -76,11 +76,6 @@ def _present[Q: fw.Quantity](field: fw.Field[Q] | None) -> fw.Field[Q]:
     return field
 
 
-def _array(field: fw.Field[Any]) -> Any:
-    # NDArrayObject declares no __setitem__
-    return field.data.ndarray
-
-
 class PhysicsDriver(fw.Component):
     """
     Runs the physics processes under parallel coupling (ICON AES's aes_phy_main).
@@ -136,8 +131,8 @@ class PhysicsDriver(fw.Component):
         self.processes = tuple(processes)
         # the diagnostics the processes read, derived here each step
         self.diagnostics = fw.allocate(states.Diagnostics, grid, self.allocator)
-        # one sum per tendency the processes emit, by output name, made when first seen
-        self.accumulators: dict[str, fw.Field[Any]] = {}
+        # one sum per tendency the processes emit, made when first seen
+        self.tendency_sums = fw.Sums(grid, self.allocator)
         # the last output of each process, reused on the steps it is not active
         # TODO(jcanton): part 02 fix this. Key by the process's component (identity), once the
         # process holds it, and drop `PhysicsProcess.name`, which exists only for this key.
@@ -244,7 +239,7 @@ class PhysicsDriver(fw.Component):
     def run(self, inputs: Input, out: Output | None = None) -> Output:
         out = self.buffers(out)
         entry = self._diagnose(inputs)
-        self._zero_accumulators()
+        self.tendency_sums.zero()
         # the time control reads the start of the step being integrated
         step_start = inputs.simulation_current_datetime - inputs.dtime
         for process in self.processes:
@@ -257,7 +252,7 @@ class PhysicsDriver(fw.Component):
             # is no output to reuse yet; otherwise its last output is accumulated again
             if time_control.is_active(step_start) or process.name not in self.outputs:
                 self.outputs[process.name] = process.step(entry)
-            self._accumulate(self.outputs[process.name])
+            self.tendency_sums.add(self.outputs[process.name], quantities=fw.Tendency)
         self._apply(entry, inputs.dtime.total_seconds(), out)
         return out
 
@@ -315,33 +310,6 @@ class PhysicsDriver(fw.Component):
         self._rbf_interpolation(p_e_in=entry.vn.data, p_u_out=entry.u.data, p_v_out=entry.v.data)
         return entry
 
-    def _zero_accumulators(self) -> None:
-        for accumulator in self.accumulators.values():
-            _array(accumulator)[...] = 0.0
-
-    def _accumulate(self, output: fw.State) -> None:
-        """
-        Add every `Tendency` leaf of a process output to the sum of its name.
-
-        Element-wise with no neighbour access, so a plain array operation rather than a stencil.
-        """
-        for declaration, field in output.leaves():
-            if not issubclass(declaration.quantity, fw.Tendency):
-                continue
-            if (accumulator := self.accumulators.get(declaration.name)) is None:
-                accumulator = self.accumulators[declaration.name] = fw.zeros(
-                    declaration.quantity, self.grid, self.allocator
-                )
-            _array(accumulator)[...] += field.data.ndarray
-
-    @staticmethod
-    def _continue_in_place(entry: physics_state.EntryState, out: Output) -> None:
-        """`out` continues the entry's prognostics: they are updated in place."""
-        for declaration, target in out.leaves():
-            source: fw.Field[Any] = getattr(entry, declaration.name)
-            if target.data is not source.data:
-                _array(target)[...] = source.data.ndarray
-
     def _apply(self, entry: physics_state.EntryState, dt_seconds: float, out: Output) -> None:
         """
         The summed tendencies into `out`, once (ICON's phy2dyn).
@@ -350,12 +318,12 @@ class PhysicsDriver(fw.Component):
         moisture, then the temperature, then the winds. A tendency no process produced is not
         applied.
         """
-        self._continue_in_place(entry, out)
-        acc = self.accumulators
+        out.copy_from(entry)
+        sums = self.tendency_sums
 
         # 1. tracers: q += dt * sum of the tendencies (mo_interface_iconam_aes:513)
         for name in states.TRACERS:
-            if (tendency := acc.get(f"tend_{name}")) is not None:
+            if (tendency := sums.field(f"tend_{name}")) is not None:
                 tracer = _present(getattr(out, name)).data
                 self._apply_tendency(
                     field_a=tracer, coeff=dt_seconds, field_b=tendency.data, output_field=tracer
@@ -363,11 +331,11 @@ class PhysicsDriver(fw.Component):
 
         # 2. temperature -> exner/theta_v: one exact-EOS update from the entry temperature plus
         #    the summed tendency, with the final (post step 1) moisture
-        if "tend_temperature" in acc:
+        if (tend_temperature := sums.field("tend_temperature")) is not None:
             self._apply_tendency(
                 field_a=entry.temperature.data,
                 coeff=dt_seconds,
-                field_b=acc["tend_temperature"].data,
+                field_b=tend_temperature.data,
                 output_field=self._new_temperature,
             )
             self._compute_virtual_temperature_tendency(
@@ -392,16 +360,14 @@ class PhysicsDriver(fw.Component):
             )
 
         # 3. winds: one projection of the summed (u, v) tendencies onto the edge normals
-        wind_tendencies = {"tend_u", "tend_v"} & acc.keys()
-        if len(wind_tendencies) == 1:
-            (declared,) = wind_tendencies
+        tend_u, tend_v = sums.field("tend_u"), sums.field("tend_v")
+        if (tend_u is None) != (tend_v is None):
             raise ValueError(
-                f"the horizontal wind tendencies are applied as a pair; got only {declared}"
+                "the horizontal wind tendencies are applied as a pair; got only"
+                f" {'tend_u' if tend_u is not None else 'tend_v'}"
             )
-        if wind_tendencies:
-            self._compute_vn_from_uv(
-                u=acc["tend_u"].data, v=acc["tend_v"].data, vn=self._vn_tendency
-            )
+        if tend_u is not None and tend_v is not None:
+            self._compute_vn_from_uv(u=tend_u.data, v=tend_v.data, vn=self._vn_tendency)
             self._apply_tendency_vn(
                 field_a=out.vn.data,
                 coeff=dt_seconds,
@@ -410,10 +376,10 @@ class PhysicsDriver(fw.Component):
             )
 
         # 4. w, on half levels
-        if "tend_w" in acc:
+        if (tend_w := sums.field("tend_w")) is not None:
             self._apply_tendency_w(
                 field_a=out.w.data,
                 coeff=dt_seconds,
-                field_b=acc["tend_w"].data,
+                field_b=tend_w.data,
                 output_field=out.w.data,
             )

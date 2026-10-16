@@ -22,7 +22,7 @@ import dataclasses
 import functools
 import types
 import typing
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from typing import Any, ClassVar, Literal, dataclass_transform
 
 import gt4py.next as gtx
@@ -39,16 +39,17 @@ if typing.TYPE_CHECKING:
 
 __all__ = [
     "Component",
-    "Decl",
     "Empty",
     "Field",
     "PredictorCorrectorPair",
     "Quantity",
     "State",
+    "Sums",
     "Tendency",
     "TimeStepPair",
     "allocate",
     "copy",
+    "file_variables",
     "zeros",
 ]
 
@@ -148,6 +149,9 @@ class State:
     `Field` leaves are read back from the annotations by `declarations()`; plain leaves
     (floats, ints, datetimes) are ordinary fields and are not listed. A leaf annotated
     `Field[Q] | None` is optional: `allocate` may leave it None and `leaves()` skips it.
+
+    `declarations` and `leaves` are internal to the components package: consumers use the
+    named operations (`allocate`, `copy`, `copy_from`, `fields`, `file_variables`, `Sums`).
     """
 
     def __init_subclass__(cls) -> None:
@@ -156,15 +160,41 @@ class State:
 
     @classmethod
     def declarations(cls) -> tuple[Decl, ...]:
-        """The `Field` leaves of the class, in declaration order; needs no values."""
+        """
+        The `Field` leaves of the class, in declaration order; needs no values.
+
+        Internal to the components package: consumers use the named operations.
+        """
         return _declarations(cls)
 
     def leaves(self) -> Iterator[tuple[Decl, Field[Any]]]:
-        """The declarations with their fields, skipping the optional leaves that are None."""
+        """
+        The declarations with their fields, skipping the optional leaves that are None.
+
+        Internal to the components package: consumers use the named operations.
+        """
         for declaration in self.declarations():
             field = getattr(self, declaration.name)
             if field is not None:
                 yield declaration, field
+
+    def fields(self) -> dict[str, Field[Any]]:
+        """The present leaves by name, in declaration order: the verification view."""
+        return {declaration.name: field for declaration, field in self.leaves()}
+
+    def copy_from(self, source: State) -> None:
+        """
+        Make every present leaf hold the source's values, in place.
+
+        A leaf whose buffer is the source's own is skipped, so a state can be continued
+        from a view of itself. The source must hold every leaf of `self`; the plain
+        leaves are untouched.
+        """
+        for declaration, target in self.leaves():
+            source_field: Field[Any] = getattr(source, declaration.name)
+            if target.data is not source_field.data:
+                buffer: Any = target.data.ndarray  # NDArrayObject declares no __setitem__
+                buffer[...] = source_field.data.ndarray
 
 
 _DECLARATIONS: dict[type[State], tuple[Decl, ...]] = {}
@@ -233,6 +263,67 @@ def copy[S: State](state: S, allocator: gtx_typing.Allocator | None) -> S:
     }
     copied: S = dataclasses.replace(typing.cast(Any, state), **copies)
     return copied
+
+
+def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None) -> dict[str, str]:
+    """
+    The output file variable of every leaf, as `{variable name: leaf name}`.
+
+    A leaf's variable is its alias when it has one, else its quantity's `standard_name`;
+    a leaf with neither is an error, as are two leaves writing the same variable.
+    """
+    variables: dict[str, str] = {}
+    for declaration in cls.declarations():
+        variable = (aliases or {}).get(declaration.name, declaration.quantity.standard_name)
+        if variable is None:
+            raise ValueError(f"leaf '{declaration.name}' of {cls.__name__} has no variable name")
+        if variable in variables:
+            raise ValueError(
+                f"leaves '{variables[variable]}' and '{declaration.name}' of {cls.__name__}"
+                f" both write the variable '{variable}'"
+            )
+        variables[variable] = declaration.name
+    return variables
+
+
+class Sums:
+    """The running elementwise sums of fields, one per leaf name, made when first seen."""
+
+    def __init__(self, grid: base_grid.Grid, allocator: gtx_typing.Allocator | None) -> None:
+        self._grid = grid
+        self._allocator = allocator
+        self._sums: dict[str, Field[Any]] = {}
+
+    def add(self, state: State, *, quantities: type[Quantity] | None = None) -> None:
+        """
+        Add every field of `state` whose quantity is a `quantities` subclass.
+
+        Every quantity qualifies when none is given; a sum is made when its name is
+        first seen.
+        """
+        for declaration, field in state.leaves():
+            if quantities is not None and not issubclass(declaration.quantity, quantities):
+                continue
+            if (total := self._sums.get(declaration.name)) is None:
+                total = self._sums[declaration.name] = zeros(
+                    declaration.quantity, self._grid, self._allocator
+                )
+            buffer: Any = total.data.ndarray  # NDArrayObject declares no __setitem__
+            buffer[...] += field.data.ndarray
+
+    def field(self, name: str) -> Field[Any] | None:
+        """The sum of `name`, or None when no added field had that name."""
+        return self._sums.get(name)
+
+    def names(self) -> tuple[str, ...]:
+        """The names of the sums made so far."""
+        return tuple(self._sums)
+
+    def zero(self) -> None:
+        """Set every sum to zero, keeping the buffers."""
+        for total in self._sums.values():
+            buffer: Any = total.data.ndarray  # NDArrayObject declares no __setitem__
+            buffer[...] = 0.0
 
 
 class Component:

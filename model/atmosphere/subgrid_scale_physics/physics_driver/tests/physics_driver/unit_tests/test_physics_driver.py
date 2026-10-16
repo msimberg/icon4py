@@ -152,7 +152,7 @@ def test_run_hands_every_process_the_same_entry_state_and_applies_the_sum_once(
     np.testing.assert_array_equal(step_b.qv_read[0], 1e-3)
     # the tendencies are summed and applied once; the diagnostics are not accumulated
     np.testing.assert_allclose(_qv(tracer_state), 1e-3 + DT.total_seconds() * 3e-7, rtol=1e-12)
-    assert set(physics.accumulators) == {"tend_qv"}
+    assert set(physics.tendency_sums.names()) == {"tend_qv"}
     # the driver keeps each process's last output
     assert physics.outputs == {"a": step_a.output, "b": step_b.output}
 

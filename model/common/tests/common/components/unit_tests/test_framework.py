@@ -118,6 +118,66 @@ def test_optional_leaves_are_declared_and_skipped_when_absent(grid: base_grid.Gr
     ]
 
 
+def test_fields_lists_the_present_leaves_by_name(grid: base_grid.Grid) -> None:
+    tracers = fw.allocate(Tracers, grid, allocator=None, only=("vt",))
+    assert list(tracers.fields()) == ["pressure", "vt"]
+    assert tracers.fields()["vt"] is tracers.vt
+
+
+def test_copy_from_copies_in_place_and_skips_shared_buffers(grid: base_grid.Grid) -> None:
+    pressure = fw.zeros(Pressure, grid, allocator=None)
+    source = Column(pressure=pressure, salt=fw.zeros(Salt, grid, allocator=None), dtime=1.0)
+    target = Column(pressure=pressure, salt=fw.zeros(Salt, grid, allocator=None), dtime=2.0)
+    np.asarray(target.salt.data.ndarray)[...] = 5.0
+
+    target.copy_from(source)
+
+    assert target.salt is not source.salt
+    assert np.all(np.asarray(target.salt.data.ndarray) == 0.0)
+    assert target.pressure is pressure
+    assert target.dtime == 2.0
+
+
+def test_file_variables_names_every_leaf() -> None:
+    class With(fw.State):
+        pressure: fw.Field[Pressure]
+        salt: fw.Field[Salt]
+
+    assert fw.file_variables(With, aliases={"salt": "sea_salt"}) == {
+        "air_pressure": "pressure",
+        "sea_salt": "salt",
+    }
+    with pytest.raises(ValueError, match="salt"):
+        fw.file_variables(With)
+
+    class Twins(fw.State):
+        left: fw.Field[Pressure]
+        right: fw.Field[Pressure]
+
+    with pytest.raises(ValueError, match="air_pressure"):
+        fw.file_variables(Twins)
+
+
+def test_sums_add_by_quantity_and_zero_in_place(grid: base_grid.Grid) -> None:
+    tracers = fw.allocate(Tracers, grid, allocator=None, fill=lambda name, shape: 1.0)
+    sums = fw.Sums(grid, None)
+
+    sums.add(tracers)
+    sums.add(tracers)
+
+    salt = sums.field("salt")
+    assert salt is not None
+    assert np.all(np.asarray(salt.data.ndarray) == 2.0)
+
+    sums.zero()
+    assert np.all(np.asarray(salt.data.ndarray) == 0.0)
+
+    only_salt = fw.Sums(grid, None)
+    only_salt.add(tracers, quantities=Salt)
+    assert only_salt.field("vt") is None
+    assert only_salt.field("salt") is not None
+
+
 def test_allocate_follows_the_declared_dims(grid: base_grid.Grid) -> None:
     class Fields(fw.State):
         pressure: fw.Field[Pressure]

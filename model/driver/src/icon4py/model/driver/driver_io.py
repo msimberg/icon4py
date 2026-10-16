@@ -98,14 +98,7 @@ class IOMonitor(fw.Component):
     ) -> None:
         super().__init__(grid, None)
         self.writer = writer
-        leaves: dict[str, str] = {}
-        for declaration in type(self).Input.declarations():
-            name = _FILE_NAMES.get(declaration.name, declaration.quantity.standard_name)
-            assert name is not None, f"Output leaf '{declaration.name}' has no name."
-            assert name not in leaves, (
-                f"Input leaves '{leaves[name]}' and '{declaration.name}' are both written as '{name}'."
-            )
-            leaves[name] = declaration.name
+        leaves = fw.file_variables(type(self).Input, aliases=_FILE_NAMES)
         unknown = [name for name in variables if name not in leaves]
         if unknown:
             raise ValueError(

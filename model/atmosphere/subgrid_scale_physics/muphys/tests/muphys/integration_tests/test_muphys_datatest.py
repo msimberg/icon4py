@@ -117,7 +117,10 @@ def test_muphys_granule(
         qs=fw.Field(qty.QsOnCellK, init_savepoint.qs()),
         qg=fw.Field(qty.QgOnCellK, init_savepoint.qg()),
     )
-    state = {"dz": init_savepoint.dz(), **{d.name: f.data for d, f in inputs.leaves()}}
+    state = {
+        "dz": init_savepoint.dz(),
+        **{name: field.data for name, field in inputs.fields().items()},
+    }
     initial_state = {name: field.asnumpy().copy() for name, field in state.items()}
     muphys_program = run_full_muphys.setup_muphys(
         ncells=icon_grid.num_cells,
@@ -136,7 +139,7 @@ def test_muphys_granule(
         # The default Component setup is the separate-program mode.
         step=muphys_program if single_program else None,
     )
-    outputs = {d.name: f.data for d, f in component.run(inputs).leaves()}
+    outputs = {name: field.data for name, field in component.run(inputs).fields().items()}
     for name, field in state.items():
         np.testing.assert_array_equal(field.asnumpy(), initial_state[name], err_msg=name)
 
@@ -151,10 +154,10 @@ def test_muphys_granule(
             for s in SPECIES
         }
     )
+    # the granule's precipitation outputs, by its own argument names
     direct_precip = {
-        declaration.name: gtx.zeros(state["te"].domain, dtype=ta.wpfloat, allocator=allocator)
-        for declaration in muphys_component.MuphysComponent.Output.declarations()
-        if not issubclass(declaration.quantity, fw.Tendency)
+        name: gtx.zeros(state["te"].domain, dtype=ta.wpfloat, allocator=allocator)
+        for name in ("pflx", "pr", "ps", "pi", "pg", "pre")
     }
     muphys_program(
         dz=state["dz"],
