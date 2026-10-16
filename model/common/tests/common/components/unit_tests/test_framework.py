@@ -124,6 +124,22 @@ def test_state_maps_present_leaf_names_to_fields(grid: base_grid.Grid) -> None:
     tracers = fw.allocate(Tracers, grid, allocator=None, only=("vt",))
     assert list(tracers) == ["pressure", "vt"]
     assert tracers["vt"] is tracers.vt
+    assert "vt" in tracers
+    # an optional leaf left None is absent from the mapping
+    assert "salt" not in tracers
+    assert tracers.get("salt") is None
+    assert dict(tracers)["vt"] is tracers.vt
+
+
+def test_states_are_identity_equal_and_hashable_even_when_sharing_fields(
+    grid: base_grid.Grid,
+) -> None:
+    one = fw.allocate(Tracers, grid, allocator=None, only=("vt",))
+    same, two = one, dataclasses.replace(one)
+    assert one == same
+    assert one != two
+    assert hash(one) == hash(one)
+    assert {one: 1}[one] == 1
 
 
 def test_copy_into_copies_in_place_and_skips_shared_buffers(grid: base_grid.Grid) -> None:
@@ -181,6 +197,35 @@ def test_add_into_sums_into_optional_leaves_and_zero_keeps_them(grid: base_grid.
     fw.zero(totals)
     assert list(totals) == ["salt", "pressure", "vt"]
     assert np.all(np.asarray(salt.data.ndarray) == 0.0)
+
+
+def test_add_into_rejects_unmatched_names_and_quantities(grid: base_grid.Grid) -> None:
+    class Totals(fw.State):
+        salt: fw.Field[Salt] | None = None
+
+    class Winds(fw.State):
+        vt: fw.Field[Vt]
+
+    class WrongQuantity(fw.State):
+        salt: fw.Field[Pressure]
+
+    totals = fw.allocate(Totals, grid, allocator=None, only=())
+    with pytest.raises(ValueError, match="vt"):
+        fw.add_into(totals, fw.allocate(Winds, grid, allocator=None), allocator=None)
+    with pytest.raises(ValueError, match="Pressure"):
+        fw.add_into(totals, fw.allocate(WrongQuantity, grid, allocator=None), allocator=None)
+
+
+def test_groups_may_not_be_optional() -> None:
+    class Inner(fw.State):
+        salt: fw.Field[Salt]
+
+    with pytest.raises(TypeError, match="optional"):
+
+        class Bad(fw.State):
+            inner: Inner | None = None
+
+        Bad.declarations()
 
 
 def test_groups_recurse_in_allocate_fields_and_copy(grid: base_grid.Grid) -> None:

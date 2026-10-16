@@ -28,8 +28,9 @@ fields. The design and its trade-offs are in C2SM/icon4py-knowledge `mwe/compone
   (in place, keeping the buffers and the Nones) and `file_variables(aliases=...)` (the
   output file variable of every leaf).
 - `allocate(State, grid, allocator, only=...)` makes a zero field per declaration (`only`
-  names the optional leaves to allocate, the others stay None); `zeros(Q, grid, allocator)`
-  makes one field; `copy(state, allocator)` copies the present leaves.
+  names the optional leaves to allocate, the others stay None; a `fill(name, dims)`
+  callback gives a leaf's values instead of zeros); `zeros(Q, grid, allocator)` makes one
+  field; `copy(state, allocator)` copies the present leaves.
 - `Component`: `Input`, `Output` and `run(inputs, out=None) -> Output`, the only method a
   component implements. A component that writes nothing declares `Output = fw.Empty`.
 - `TimeStepPair` / `PredictorCorrectorPair`: icon4py's pairs (`common.utils`), re-exported.

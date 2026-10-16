@@ -161,9 +161,11 @@ class State(Mapping[str, Field[Any]]):
     `Field[Q] | None` is optional: `allocate` may leave it None and `leaves()` skips it.
 
     A state is a read-only `Mapping` from leaf name to field: `state[name]`, `for name in
-    state`, `state.items()`. `declarations` and `leaves` are internal to the components
-    package: consumers use the mapping and the named operations (`allocate`, `copy`,
-    `copy_into`, `file_variables`, `add_into`, `zero`).
+    state`, `state.items()`. States compare by identity and stay hashable: the Mapping's
+    dict equality would compare fields by alias, so it is overridden. `declarations` and
+    `leaves` are internal to the components package: consumers use the mapping and the
+    named operations (`allocate`, `copy`, `copy_into`, `file_variables`, `add_into`,
+    `zero`).
     A leaf annotated with another `State` class is a group: `allocate`, `copy`, `leaves`
     and the declarations recurse into it, so the group's leaves behave like the class's
     own. The group classes sit at module level, so the annotations resolve.
@@ -172,6 +174,13 @@ class State(Mapping[str, Field[Any]]):
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
         dataclasses.dataclass(frozen=True, eq=False, kw_only=True)(cls)
+
+    def __eq__(self, other: object) -> bool:
+        """Identity, the `eq=False` dataclass choice, kept over the Mapping's dict equality."""
+        return self is other
+
+    def __hash__(self) -> int:
+        return id(self)
 
     @classmethod
     def declarations(cls) -> tuple[Decl | Group, ...]:
@@ -190,6 +199,11 @@ class State(Mapping[str, Field[Any]]):
                     (quantity,) = typing.get_args(hint)
                     found.append(Decl(field.name, quantity, optional))
                 elif isinstance(hint, type) and issubclass(hint, State):
+                    if optional:
+                        raise TypeError(
+                            f"group '{field.name}' of {cls.__name__} may not be optional;"
+                            " annotate it without '| None'"
+                        )
                     found.append(Group(field.name, hint))
             _DECLARATIONS[cls] = tuple(found)
         return _DECLARATIONS[cls]
@@ -322,7 +336,9 @@ def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None
     The output file variable of every leaf, as `{variable name: leaf name}`.
 
     A leaf's variable is its alias when it has one, else its quantity's `standard_name`;
-    a leaf with neither is an error, as are two leaves writing the same variable.
+    a leaf with neither is an error, as are two leaves writing the same variable. The
+    duplicate check covers one class (groups included); the same variable in two
+    different classes is each class's own business.
     """
     variables: dict[str, str] = {}
     for declaration in _flat_declarations(cls):
@@ -342,11 +358,28 @@ def add_into(target: State, source: State, allocator: gtx_typing.Allocator | Non
     """
     Add every field of `source` into the matching leaf of `target`, in place.
 
-    `target` is a state of optional leaves that declares every name `source` may hold: a
-    leaf that is None is made first, as a copy of the source's field, so a present leaf
-    means "seen at least once" across steps. The plain leaves are untouched.
+    `target` is a state of optional leaves that declares, under the same names and with
+    the same quantities, every field `source` may hold. A leaf that is None is made
+    first: a fresh buffer on `allocator`, holding the source's values, set past the
+    frozen guard (the documented way a frozen instance is built). A present leaf
+    therefore means "seen at least once" across steps. The plain leaves are untouched.
+
+    Raises `ValueError` when a name or a quantity of `source` has no match in `target`.
     """
+    declared = {entry.name: entry for entry in _flat_declarations(target.__class__)}
     for declaration, field in source.leaves():
+        target_declaration = declared.get(declaration.name)
+        if target_declaration is None:
+            raise ValueError(
+                f"cannot add '{declaration.name}':"
+                f" {target.__class__.__name__} declares no leaf of that name"
+            )
+        if target_declaration.quantity is not declaration.quantity:
+            raise ValueError(
+                f"cannot add '{declaration.name}': {target.__class__.__name__} declares it"
+                f" with {target_declaration.quantity.__name__},"
+                f" not {declaration.quantity.__name__}"
+            )
         total: Field[Any] | None = getattr(target, declaration.name)
         if total is None:
             total = Field(
