@@ -21,10 +21,10 @@ fields. The design and its trade-offs are in C2SM/icon4py-knowledge `mwe/compone
   recurse into it, so the group's leaves behave like the class's own. `declarations()`
   and `leaves()` are internal to the components package; consumers use the named
   operations.
-- The named operations over the leaves: `fields()` (the present leaves by name, the
-  verification view), `fw.copy_into(target, source)` (the in-place, aliasing-aware copy),
-  `file_variables(aliases=...)` (the output file variable of every leaf) and `Sums` (the
-  running elementwise sums of a state's fields).
+- A state is a read-only `Mapping` from leaf name to field: `state[name]`, `for name in state`, `state.items()` (the verification view).
+- The named operations over the leaves: `fw.copy_into(target, source)` (the in-place,
+  aliasing-aware copy), `file_variables(aliases=...)` (the output file variable of every
+  leaf) and `Sums` (the running elementwise sums of a state's fields).
 - `allocate(State, grid, allocator, only=...)` makes a zero field per declaration (`only`
   names the optional leaves to allocate, the others stay None); `zeros(Q, grid, allocator)`
   makes one field; `copy(state, allocator)` copies the present leaves.

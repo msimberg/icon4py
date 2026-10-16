@@ -237,7 +237,7 @@ def test_driver(
             "theta_v": savepoint_time_step_exit.theta_v(),
         }
 
-    for name, tracer in ds.tracers.current.fields().items():
+    for name, tracer in ds.tracers.current.items():
         computed[name] = tracer.data
         references[name] = getattr(savepoint_time_step_exit, name)()
 

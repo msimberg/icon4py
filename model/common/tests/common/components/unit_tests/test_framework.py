@@ -120,10 +120,10 @@ def test_optional_leaves_are_declared_and_skipped_when_absent(grid: base_grid.Gr
     ]
 
 
-def test_fields_lists_the_present_leaves_by_name(grid: base_grid.Grid) -> None:
+def test_state_maps_present_leaf_names_to_fields(grid: base_grid.Grid) -> None:
     tracers = fw.allocate(Tracers, grid, allocator=None, only=("vt",))
-    assert list(tracers.fields()) == ["pressure", "vt"]
-    assert tracers.fields()["vt"] is tracers.vt
+    assert list(tracers) == ["pressure", "vt"]
+    assert tracers["vt"] is tracers.vt
 
 
 def test_copy_into_copies_in_place_and_skips_shared_buffers(grid: base_grid.Grid) -> None:
@@ -186,7 +186,7 @@ def test_groups_recurse_in_allocate_fields_and_copy(grid: base_grid.Grid) -> Non
     outer = fw.allocate(Outer, grid, allocator=None, fill=lambda name, dims: float(len(name)))
     assert np.all(np.asarray(outer.inner.salt.data.ndarray) == 4.0)
     assert np.all(np.asarray(outer.pressure.data.ndarray) == 8.0)
-    assert list(outer.fields()) == ["salt", "pressure"]
+    assert list(outer) == ["salt", "pressure"]
 
     copied = fw.copy(outer, allocator=None)
     assert copied.inner.salt is not outer.inner.salt

@@ -119,7 +119,7 @@ def test_muphys_granule(
     )
     state = {
         "dz": init_savepoint.dz(),
-        **{name: field.data for name, field in inputs.fields().items()},
+        **{name: field.data for name, field in inputs.items()},
     }
     initial_state = {name: field.asnumpy().copy() for name, field in state.items()}
     muphys_program = run_full_muphys.setup_muphys(
@@ -139,7 +139,7 @@ def test_muphys_granule(
         # The default Component setup is the separate-program mode.
         step=muphys_program if single_program else None,
     )
-    outputs = {name: field.data for name, field in component.run(inputs).fields().items()}
+    outputs = {name: field.data for name, field in component.run(inputs).items()}
     for name, field in state.items():
         np.testing.assert_array_equal(field.asnumpy(), initial_state[name], err_msg=name)
 
@@ -156,7 +156,7 @@ def test_muphys_granule(
     )
     # the granule's precipitation outputs, by its own argument names
     fluxes = fw.allocate(muphys_component.FluxOutput, icon_grid, allocator)
-    direct_precip = {name: field.data for name, field in fluxes.fields().items()}
+    direct_precip = {name: field.data for name, field in fluxes.items()}
     muphys_program(
         dz=state["dz"],
         te=direct_t,

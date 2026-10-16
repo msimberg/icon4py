@@ -151,7 +151,7 @@ class Group:
 
 
 @dataclass_transform(frozen_default=True, kw_only_default=True, eq_default=False)
-class State:
+class State(Mapping[str, Field[Any]]):
     """
     A frozen, keyword-only dataclass of typed leaves.
 
@@ -159,9 +159,10 @@ class State:
     (floats, ints, datetimes) are ordinary fields and are not listed. A leaf annotated
     `Field[Q] | None` is optional: `allocate` may leave it None and `leaves()` skips it.
 
-    `declarations` and `leaves` are internal to the components package: consumers use
-    the named operations (`allocate`, `copy`, `copy_into`, `fields`, `file_variables`,
-    `Sums`).
+    A state is a read-only `Mapping` from leaf name to field: `state[name]`, `for name in
+    state`, `state.items()`. `declarations` and `leaves` are internal to the components
+    package: consumers use the mapping and the named operations (`allocate`, `copy`,
+    `copy_into`, `file_variables`, `Sums`).
     A leaf annotated with another `State` class is a group: `allocate`, `copy`, `leaves`
     and the declarations recurse into it, so the group's leaves behave like the class's
     own. The group classes sit at module level, so the annotations resolve.
@@ -206,9 +207,20 @@ class State:
             if field is not None:
                 yield entry, field
 
-    def fields(self) -> dict[str, Field[Any]]:
-        """The present leaves by name, in declaration order: the verification view."""
-        return {declaration.name: field for declaration, field in self.leaves()}
+    def __getitem__(self, name: str) -> Field[Any]:
+        """The present leaf `name`; `KeyError` when it is absent or None."""
+        for declaration, field in self.leaves():
+            if declaration.name == name:
+                return field
+        raise KeyError(name)
+
+    def __iter__(self) -> Iterator[str]:
+        """The present leaf names, in declaration order."""
+        return (declaration.name for declaration, _ in self.leaves())
+
+    def __len__(self) -> int:
+        """The number of present leaves."""
+        return sum(1 for _ in self.leaves())
 
 
 _DECLARATIONS: dict[type[State], tuple[Decl | Group, ...]] = {}
