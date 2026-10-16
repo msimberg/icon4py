@@ -19,7 +19,7 @@ fields. The design and its trade-offs are in C2SM/icon4py-knowledge `mwe/compone
   `Field[Q] | None` is optional: `allocate` may leave it None. `declarations()` and
   `leaves()` are internal to the components package; consumers use the named operations.
 - The named operations over the leaves: `fields()` (the present leaves by name, the
-  verification view), `copy_from(source)` (the in-place, aliasing-aware copy),
+  verification view), `fw.copy_into(target, source)` (the in-place, aliasing-aware copy),
   `file_variables(aliases=...)` (the output file variable of every leaf) and `Sums` (the
   running elementwise sums of the fields whose quantity is a given one).
 - `allocate(State, grid, allocator, only=...)` makes a zero field per declaration (`only`

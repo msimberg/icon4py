@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
+import gt4py.next as gtx
 import pytest
 
 import icon4py.model.common.dimension as dims
@@ -27,7 +27,7 @@ from icon4py.model.common.grid import (
 )
 from icon4py.model.common.interpolation import interpolation_attributes, interpolation_factory
 from icon4py.model.common.metrics import metrics_attributes, metrics_factory
-from icon4py.model.common.utils import device_utils
+from icon4py.model.common.utils import data_allocation as data_alloc, device_utils
 from icon4py.model.testing.fixtures.benchmark import (
     geometry_field_source,
     interpolation_field_source,
@@ -153,9 +153,9 @@ def test_diffusion_benchmark(  # noqa: PLR0917 [too-many-positional-arguments]
     )
 
     # initialization of the diagnostic and prognostic state
-    def random(name: str, shape: tuple[int, ...]) -> Any:
+    def random(name: str, dims: tuple[gtx.Dimension, ...]) -> Any:
         low = 0.0 if name == "w" else -1.0
-        return np.random.default_rng().uniform(low=low, high=1.0, size=shape)
+        return data_alloc.random_field(mesh, *dims, low=low, allocator=allocator).ndarray
 
     diagnostic_state = fw.allocate(states.DiffusionDiagnostics, mesh, allocator, fill=random)
     prognostic_state = fw.allocate(states.PrognosticState, mesh, allocator, fill=random)

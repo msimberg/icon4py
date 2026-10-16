@@ -318,7 +318,7 @@ class PhysicsDriver(fw.Component):
         moisture, then the temperature, then the winds. A tendency no process produced is not
         applied.
         """
-        out.copy_from(entry)
+        fw.copy_into(out, entry)
         sums = self.tendency_sums
 
         # 1. tracers: q += dt * sum of the tendencies (mo_interface_iconam_aes:513)

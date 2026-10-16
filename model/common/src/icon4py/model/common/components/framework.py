@@ -49,6 +49,7 @@ __all__ = [
     "TimeStepPair",
     "allocate",
     "copy",
+    "copy_into",
     "file_variables",
     "zeros",
 ]
@@ -150,8 +151,9 @@ class State:
     (floats, ints, datetimes) are ordinary fields and are not listed. A leaf annotated
     `Field[Q] | None` is optional: `allocate` may leave it None and `leaves()` skips it.
 
-    `declarations` and `leaves` are internal to the components package: consumers use the
-    named operations (`allocate`, `copy`, `copy_from`, `fields`, `file_variables`, `Sums`).
+    `declarations` and `leaves` are internal to the components package: consumers use
+    the named operations (`allocate`, `copy`, `copy_into`, `fields`, `file_variables`,
+    `Sums`).
     """
 
     def __init_subclass__(cls) -> None:
@@ -165,7 +167,16 @@ class State:
 
         Internal to the components package: consumers use the named operations.
         """
-        return _declarations(cls)
+        if cls not in _DECLARATIONS:
+            hints = typing.get_type_hints(cls)
+            found = []
+            for field in dataclasses.fields(cls):  # type: ignore[arg-type]
+                hint, optional = _without_none(hints[field.name])
+                if typing.get_origin(hint) is Field:
+                    (quantity,) = typing.get_args(hint)
+                    found.append(Decl(field.name, quantity, optional))
+            _DECLARATIONS[cls] = tuple(found)
+        return _DECLARATIONS[cls]
 
     def leaves(self) -> Iterator[tuple[Decl, Field[Any]]]:
         """
@@ -182,35 +193,8 @@ class State:
         """The present leaves by name, in declaration order: the verification view."""
         return {declaration.name: field for declaration, field in self.leaves()}
 
-    def copy_from(self, source: State) -> None:
-        """
-        Make every present leaf hold the source's values, in place.
-
-        A leaf whose buffer is the source's own is skipped, so a state can be continued
-        from a view of itself. The source must hold every leaf of `self`; the plain
-        leaves are untouched.
-        """
-        for declaration, target in self.leaves():
-            source_field: Field[Any] = getattr(source, declaration.name)
-            if target.data is not source_field.data:
-                buffer: Any = target.data.ndarray  # NDArrayObject declares no __setitem__
-                buffer[...] = source_field.data.ndarray
-
 
 _DECLARATIONS: dict[type[State], tuple[Decl, ...]] = {}
-
-
-def _declarations(cls: type[State]) -> tuple[Decl, ...]:
-    if cls not in _DECLARATIONS:
-        hints = typing.get_type_hints(cls)
-        found = []
-        for field in dataclasses.fields(cls):  # type: ignore[arg-type]
-            hint, optional = _without_none(hints[field.name])
-            if typing.get_origin(hint) is Field:
-                (quantity,) = typing.get_args(hint)
-                found.append(Decl(field.name, quantity, optional))
-        _DECLARATIONS[cls] = tuple(found)
-    return _DECLARATIONS[cls]
 
 
 def _without_none(hint: Any) -> tuple[Any, bool]:
@@ -231,13 +215,13 @@ def allocate[S: State](
     grid: base_grid.Grid,
     allocator: gtx_typing.Allocator | None,
     *,
-    fill: Callable[[str, tuple[int, ...]], Any] | None = None,
+    fill: Callable[[str, tuple[gtx.Dimension, ...]], Any] | None = None,
     only: Collection[str] | None = None,
 ) -> S:
     """
     A state with a zero field per declaration.
 
-    `fill(name, shape)` gives the value of a leaf instead of zeros. `only` names the optional
+    `fill(name, dims)` gives the value of a leaf instead of zeros. `only` names the optional
     leaves to allocate; the other optional leaves are None. Without it every leaf is allocated.
     """
     values: dict[str, Any] = {}
@@ -248,7 +232,7 @@ def allocate[S: State](
         field = zeros(declaration.quantity, grid, allocator)
         if fill is not None:
             buffer: Any = field.data.ndarray  # NDArrayObject declares no __setitem__
-            buffer[...] = fill(declaration.name, buffer.shape)
+            buffer[...] = fill(declaration.name, declaration.quantity.dims)
         values[declaration.name] = field
     return cls(**values)
 
@@ -263,6 +247,21 @@ def copy[S: State](state: S, allocator: gtx_typing.Allocator | None) -> S:
     }
     copied: S = dataclasses.replace(typing.cast(Any, state), **copies)
     return copied
+
+
+def copy_into(target: State, source: State) -> None:
+    """
+    Make every present leaf of `target` hold the source's values, in place.
+
+    A leaf whose buffer is the source's own is skipped, so a state can be continued
+    from a view of itself. The source must hold every leaf of `target`; the plain
+    leaves are untouched.
+    """
+    for declaration, target_field in target.leaves():
+        source_field: Field[Any] = getattr(source, declaration.name)
+        if target_field.data is not source_field.data:
+            buffer: Any = target_field.data.ndarray  # NDArrayObject declares no __setitem__
+            buffer[...] = source_field.data.ndarray
 
 
 def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None) -> dict[str, str]:

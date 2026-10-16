@@ -343,9 +343,7 @@ def jablonowski_williamson(  # noqa: PLR0915 [too-many-statements]
     # Moist initialization only runs when transport is active. The only tracer we
     # need to set is qv; the hydrometeors (qc, qi, ...) keep their zero-initialized
     # value, so we don't touch them.
-    active_tracers = {
-        name for name in states.TRACERS if getattr(tracer_state_now, name) is not None
-    }
+    active_tracers = set(tracer_state_now.fields())
     if active_tracers:
         if tracer_state_now.qv is None:
             raise ValueError(

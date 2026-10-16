@@ -124,13 +124,13 @@ def test_fields_lists_the_present_leaves_by_name(grid: base_grid.Grid) -> None:
     assert tracers.fields()["vt"] is tracers.vt
 
 
-def test_copy_from_copies_in_place_and_skips_shared_buffers(grid: base_grid.Grid) -> None:
+def test_copy_into_copies_in_place_and_skips_shared_buffers(grid: base_grid.Grid) -> None:
     pressure = fw.zeros(Pressure, grid, allocator=None)
     source = Column(pressure=pressure, salt=fw.zeros(Salt, grid, allocator=None), dtime=1.0)
     target = Column(pressure=pressure, salt=fw.zeros(Salt, grid, allocator=None), dtime=2.0)
     np.asarray(target.salt.data.ndarray)[...] = 5.0
 
-    target.copy_from(source)
+    fw.copy_into(target, source)
 
     assert target.salt is not source.salt
     assert np.all(np.asarray(target.salt.data.ndarray) == 0.0)
@@ -183,7 +183,7 @@ def test_allocate_follows_the_declared_dims(grid: base_grid.Grid) -> None:
         pressure: fw.Field[Pressure]
         salt: fw.Field[Salt]
 
-    fields = fw.allocate(Fields, grid, allocator=None, fill=lambda name, shape: float(len(name)))
+    fields = fw.allocate(Fields, grid, allocator=None, fill=lambda name, dims: float(len(name)))
     assert fields.pressure.data.ndarray.shape == (grid.num_cells, grid.num_levels)
     assert fields.salt.data.ndarray.shape == (grid.num_cells,)
     assert np.all(np.asarray(fields.salt.data.ndarray) == 4.0)
@@ -200,7 +200,7 @@ def test_allocate_fill_is_written_on_the_leaf_without_a_host_conversion(
     def refuse(*args: Any, **kwargs: Any) -> Any:
         raise TypeError("Implicit conversion to a NumPy array is not allowed")
 
-    def fill(name: str, shape: tuple[int, ...]) -> float:
+    def fill(name: str, dims: tuple[gtx.Dimension, ...]) -> float:
         monkeypatch.setattr(np, "asarray", refuse)
         return 4.0
 

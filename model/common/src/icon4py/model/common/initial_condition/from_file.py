@@ -134,12 +134,7 @@ def read_initial_condition_from_file(
     ntracer = config.ntracer
     if ntracer > 0:
         tracers = array_ns.squeeze(serializer.read("tracers_now", savepoint).astype(float))
-        present = [
-            field
-            for name in states.TRACERS
-            if (field := getattr(tracer_state_now, name)) is not None
-        ]
-        for i, tracer in enumerate(present):
+        for i, tracer in enumerate(tracer_state_now.fields().values()):
             tracer.data.ndarray[:, :] = array_ns.asarray(tracers[: grid.num_cells, :, i])
 
 

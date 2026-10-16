@@ -54,3 +54,7 @@ def test_prep_advection_merges_the_dycore_and_advection_views() -> None:
         "dynamical_vertical_mass_flux_at_cells_on_half_levels",
         "dynamical_vertical_volumetric_flux_at_cells_on_half_levels",
     ]
+
+
+def test_tracers_constant_matches_the_tracer_state() -> None:
+    assert tuple(d.name for d in states.TracerState.declarations()) == states.TRACERS
