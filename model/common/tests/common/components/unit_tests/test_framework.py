@@ -220,18 +220,6 @@ def test_sum_tendencies_sums_only_the_tendency_leaves(grid: base_grid.Grid) -> N
     assert np.all(np.asarray(salt.data.ndarray) == 4.0)
 
 
-def test_nested_states_are_rejected() -> None:
-    class Inner(fw.State):
-        salt: fw.Field[Salt]
-
-    with pytest.raises(TypeError, match="flat"):
-
-        class Bad(fw.State):
-            inner: Inner
-
-        Bad.declarations()
-
-
 def test_add_into_rejects_unmatched_names_and_quantities(grid: base_grid.Grid) -> None:
     class Totals(fw.State):
         salt: fw.Field[Salt] | None = None

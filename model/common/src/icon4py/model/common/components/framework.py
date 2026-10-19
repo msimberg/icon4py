@@ -159,8 +159,8 @@ class State(Mapping[str, Field[Any]]):
     `leaves` are internal to the components package: consumers use the mapping and the
     named operations (`allocate`, `copy`, `copy_into`, `file_variables`, `add_into`,
     `sum_tendencies`, `zero`).
-    A leaf annotated with another `State` class is rejected: the framework is flat, and
-    the tendency classification lives in the `Tendency` marker.
+    A leaf annotated with another `State` class is an ordinary dataclass field the
+    framework does not manage; the tendency classification lives in the `Tendency` marker.
     """
 
     def __init_subclass__(cls) -> None:
@@ -190,11 +190,6 @@ class State(Mapping[str, Field[Any]]):
                 if typing.get_origin(hint) is Field:
                     (quantity,) = typing.get_args(hint)
                     found.append(Decl(field.name, quantity, optional))
-                elif isinstance(hint, type) and issubclass(hint, State):
-                    raise TypeError(
-                        f"leaf '{field.name}' of {cls.__name__} is a nested State;"
-                        " annotate leaves with Field[Q], the framework is flat"
-                    )
             _DECLARATIONS[cls] = tuple(found)
         return _DECLARATIONS[cls]
 
