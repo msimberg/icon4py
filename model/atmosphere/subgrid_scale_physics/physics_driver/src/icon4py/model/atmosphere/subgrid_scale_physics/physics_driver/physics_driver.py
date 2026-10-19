@@ -271,7 +271,7 @@ class PhysicsDriver(fw.Component):
             # is no output to reuse yet; otherwise its last output is accumulated again
             if time_control.is_active(step_start) or process.name not in self.outputs:
                 self.outputs[process.name] = process.step(entry)
-            fw.add_into(self.tendency_sums, self.outputs[process.name].tendencies, self.allocator)
+            fw.sum_tendencies(self.tendency_sums, self.outputs[process.name], self.allocator)
         self._apply(entry, inputs.dtime.total_seconds(), out)
         return out
 

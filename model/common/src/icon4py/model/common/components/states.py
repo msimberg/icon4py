@@ -36,20 +36,13 @@ __all__ = [
     "ProcessOutput",
     "PrognosticState",
     "StepInfo",
-    "TendencyOutput",
     "TracerConfig",
     "TracerState",
 ]
 
 
-class TendencyOutput(fw.State):
-    """The tendency leaves a physics process reports; each process extends this base."""
-
-
 class ProcessOutput(fw.State):
-    """A physics process output: its tendency group and whatever else it reports."""
-
-    tendencies: TendencyOutput
+    """A physics process output: its tendency and flux leaves, flat."""
 
 
 class PrognosticState(fw.State):

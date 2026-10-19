@@ -42,29 +42,6 @@ if TYPE_CHECKING:
     from icon4py.model.common.grid import base as base_grid
 
 
-class MuphysTendencies(states.TendencyOutput):
-    """The muphys tendency leaves: what its granule reports of the temperature and tracers."""
-
-    tend_temperature: fw.Field[qty.TendencyOfTemperatureOnCellK]
-    tend_qv: fw.Field[qty.TendencyOfQvOnCellK]
-    tend_qc: fw.Field[qty.TendencyOfQcOnCellK]
-    tend_qi: fw.Field[qty.TendencyOfQiOnCellK]
-    tend_qr: fw.Field[qty.TendencyOfQrOnCellK]
-    tend_qs: fw.Field[qty.TendencyOfQsOnCellK]
-    tend_qg: fw.Field[qty.TendencyOfQgOnCellK]
-
-
-class FluxOutput(fw.State):
-    """The precipitation fluxes the muphys granule reports; they are never applied."""
-
-    pflx: fw.Field[qty.PrecipitationFluxOnCellK]
-    pr: fw.Field[qty.RainfallFluxOnCellK]
-    ps: fw.Field[qty.SnowfallFluxOnCellK]
-    pi: fw.Field[qty.IcefallFluxOnCellK]
-    pg: fw.Field[qty.GraupelfallFluxOnCellK]
-    pre: fw.Field[qty.PrecipitationEnergyFluxOnCellK]
-
-
 class MuphysComponent(fw.Component):
     """
     The muphys microphysics granule as a component.
@@ -81,6 +58,28 @@ class MuphysComponent(fw.Component):
     buffers keep what they hold (zeros in the component's own buffers).
     """
 
+    class Output(states.ProcessOutput):
+        """
+        What the muphys granule reports: its tendencies and its precipitation fluxes.
+
+        The fluxes are not tendencies and are never applied to the model state; they are
+        reported as they come.
+        """
+
+        tend_temperature: fw.Field[qty.TendencyOfTemperatureOnCellK]
+        tend_qv: fw.Field[qty.TendencyOfQvOnCellK]
+        tend_qc: fw.Field[qty.TendencyOfQcOnCellK]
+        tend_qi: fw.Field[qty.TendencyOfQiOnCellK]
+        tend_qr: fw.Field[qty.TendencyOfQrOnCellK]
+        tend_qs: fw.Field[qty.TendencyOfQsOnCellK]
+        tend_qg: fw.Field[qty.TendencyOfQgOnCellK]
+        pflx: fw.Field[qty.PrecipitationFluxOnCellK]
+        pr: fw.Field[qty.RainfallFluxOnCellK]
+        ps: fw.Field[qty.SnowfallFluxOnCellK]
+        pi: fw.Field[qty.IcefallFluxOnCellK]
+        pg: fw.Field[qty.GraupelfallFluxOnCellK]
+        pre: fw.Field[qty.PrecipitationEnergyFluxOnCellK]
+
     class Input(fw.State):
         te: fw.Field[qty.TemperatureOnCellK]
         p: fw.Field[qty.PressureOnCellK]
@@ -91,10 +90,6 @@ class MuphysComponent(fw.Component):
         qr: fw.Field[qty.QrOnCellK]
         qs: fw.Field[qty.QsOnCellK]
         qg: fw.Field[qty.QgOnCellK]
-
-    class Output(states.ProcessOutput):
-        tendencies: MuphysTendencies
-        fluxes: FluxOutput
 
     def __init__(
         self,
@@ -176,26 +171,26 @@ class MuphysComponent(fw.Component):
             q_in=self._q,
             q_out=self._q,
             t_out=self._te,
-            pflx=out.fluxes.pflx.data,
-            pr=out.fluxes.pr.data,
-            ps=out.fluxes.ps.data,
-            pi=out.fluxes.pi.data,
-            pg=out.fluxes.pg.data,
-            pre=out.fluxes.pre.data,
+            pflx=out.pflx.data,
+            pr=out.pr.data,
+            ps=out.ps.data,
+            pi=out.pi.data,
+            pg=out.pg.data,
+            pre=out.pre.data,
         )
 
         self._calculate_tendency(
             dtime=self._dt_seconds,
             old_field=inputs.te.data,
             new_field=self._te,
-            tendency=out.tendencies.tend_temperature.data,
+            tendency=out.tend_temperature.data,
         )
         for s in SPECIES:
             self._calculate_tendency(
                 dtime=self._dt_seconds,
                 old_field=getattr(inputs, f"q{s}").data,
                 new_field=getattr(self._q, s),
-                tendency=getattr(out.tendencies, f"tend_q{s}").data,
+                tendency=getattr(out, f"tend_q{s}").data,
             )
         return out
 

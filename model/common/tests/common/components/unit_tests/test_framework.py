@@ -199,6 +199,51 @@ def test_add_into_sums_into_optional_leaves_and_zero_keeps_them(grid: base_grid.
     assert np.all(np.asarray(salt.data.ndarray) == 0.0)
 
 
+def test_sum_tendencies_sums_only_the_tendency_leaves(grid: base_grid.Grid) -> None:
+    class TendencyOfSalt(fw.Tendency, dims=(dims.CellDim,), units="1"): ...
+
+    class Totals(fw.State):
+        tend_salt: fw.Field[TendencyOfSalt] | None = None
+
+    class Report(fw.State):
+        tend_salt: fw.Field[TendencyOfSalt]
+        pflx: fw.Field[Pressure]
+
+    totals = fw.allocate(Totals, grid, allocator=None, only=())
+    report = fw.allocate(Report, grid, allocator=None, fill=lambda name, dims: 2.0)
+
+    fw.sum_tendencies(totals, report, allocator=None)
+    fw.sum_tendencies(totals, report, allocator=None)
+
+    salt = totals.tend_salt
+    assert salt is not None
+    assert np.all(np.asarray(salt.data.ndarray) == 4.0)
+
+
+def test_fluxes_views_only_the_flux_leaves(grid: base_grid.Grid) -> None:
+    class FluxOfPressure(fw.Flux, dims=(dims.CellDim,), units="Pa"): ...
+
+    class Report(fw.State):
+        tend_salt: fw.Field[Salt]
+        pflx: fw.Field[FluxOfPressure]
+
+    report = fw.allocate(Report, grid, allocator=None)
+    assert list(fw.fluxes(report)) == ["pflx"]
+    assert fw.fluxes(report)["pflx"] is report.pflx
+
+
+def test_nested_states_are_rejected() -> None:
+    class Inner(fw.State):
+        salt: fw.Field[Salt]
+
+    with pytest.raises(TypeError, match="flat"):
+
+        class Bad(fw.State):
+            inner: Inner
+
+        Bad.declarations()
+
+
 def test_add_into_rejects_unmatched_names_and_quantities(grid: base_grid.Grid) -> None:
     class Totals(fw.State):
         salt: fw.Field[Salt] | None = None
@@ -214,49 +259,6 @@ def test_add_into_rejects_unmatched_names_and_quantities(grid: base_grid.Grid) -
         fw.add_into(totals, fw.allocate(Winds, grid, allocator=None), allocator=None)
     with pytest.raises(ValueError, match="Pressure"):
         fw.add_into(totals, fw.allocate(WrongQuantity, grid, allocator=None), allocator=None)
-
-
-def test_groups_may_not_be_optional() -> None:
-    class Inner(fw.State):
-        salt: fw.Field[Salt]
-
-    with pytest.raises(TypeError, match="optional"):
-
-        class Bad(fw.State):
-            inner: Inner | None = None
-
-        Bad.declarations()
-
-
-def test_groups_recurse_in_allocate_fields_and_copy(grid: base_grid.Grid) -> None:
-    class Inner(fw.State):
-        salt: fw.Field[Salt]
-
-    class Outer(fw.State):
-        inner: Inner
-        pressure: fw.Field[Pressure]
-
-    outer = fw.allocate(Outer, grid, allocator=None, fill=lambda name, dims: float(len(name)))
-    assert np.all(np.asarray(outer.inner.salt.data.ndarray) == 4.0)
-    assert np.all(np.asarray(outer.pressure.data.ndarray) == 8.0)
-    assert list(outer) == ["salt", "pressure"]
-
-    copied = fw.copy(outer, allocator=None)
-    assert copied.inner.salt is not outer.inner.salt
-    assert copied.pressure is not outer.pressure
-
-
-def test_file_variables_descends_into_groups() -> None:
-    class Height(fw.Quantity, dims=(dims.CellDim,), standard_name="height", units="m"): ...
-
-    class Inner(fw.State):
-        height: fw.Field[Height]
-
-    class Outer(fw.State):
-        inner: Inner
-        pressure: fw.Field[Pressure]
-
-    assert fw.file_variables(Outer) == {"height": "height", "air_pressure": "pressure"}
 
 
 def test_allocate_follows_the_declared_dims(grid: base_grid.Grid) -> None:

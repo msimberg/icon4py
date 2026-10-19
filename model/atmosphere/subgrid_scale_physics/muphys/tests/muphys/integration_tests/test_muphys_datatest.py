@@ -155,8 +155,12 @@ def test_muphys_granule(
         }
     )
     # the granule's precipitation outputs, by its own argument names
-    fluxes = fw.allocate(muphys_component.FluxOutput, icon_grid, allocator)
-    direct_precip = {name: field.data for name, field in fluxes.items()}
+    direct_precip = {
+        name: field.data
+        for name, field in fw.fluxes(
+            fw.allocate(muphys_component.Output, icon_grid, allocator)
+        ).items()
+    }
     muphys_program(
         dz=state["dz"],
         te=direct_t,

@@ -41,6 +41,7 @@ __all__ = [
     "Component",
     "Empty",
     "Field",
+    "Flux",
     "PredictorCorrectorPair",
     "Quantity",
     "State",
@@ -51,6 +52,8 @@ __all__ = [
     "copy",
     "copy_into",
     "file_variables",
+    "fluxes",
+    "sum_tendencies",
     "zero",
     "zeros",
 ]
@@ -100,6 +103,10 @@ class Tendency(Quantity):
     """Marker base of the tendencies: what the physics driver accumulates."""
 
 
+class Flux(Quantity):
+    """Marker base of the fluxes: outputs a process reports but never applies."""
+
+
 class Field[Q: Quantity]:
     """
     A gt4py field tagged by its quantity.
@@ -143,14 +150,6 @@ class Decl:
     optional: bool = False
 
 
-@dataclasses.dataclass(frozen=True)
-class Group:
-    """One nested `State` group of a `State` class: its name and its state class."""
-
-    name: str
-    state: type[State]
-
-
 @dataclass_transform(frozen_default=True, kw_only_default=True, eq_default=False)
 class State(Mapping[str, Field[Any]]):
     """
@@ -165,10 +164,9 @@ class State(Mapping[str, Field[Any]]):
     dict equality would compare fields by alias, so it is overridden. `declarations` and
     `leaves` are internal to the components package: consumers use the mapping and the
     named operations (`allocate`, `copy`, `copy_into`, `file_variables`, `add_into`,
-    `zero`).
-    A leaf annotated with another `State` class is a group: `allocate`, `copy`, `leaves`
-    and the declarations recurse into it, so the group's leaves behave like the class's
-    own. The group classes sit at module level, so the annotations resolve.
+    `sum_tendencies`, `fluxes`, `zero`).
+    A leaf annotated with another `State` class is rejected: the framework is flat, and
+    the classification of leaves (tendencies, fluxes) lives in the quantity markers.
     """
 
     def __init_subclass__(cls) -> None:
@@ -183,7 +181,7 @@ class State(Mapping[str, Field[Any]]):
         return id(self)
 
     @classmethod
-    def declarations(cls) -> tuple[Decl | Group, ...]:
+    def declarations(cls) -> tuple[Decl, ...]:
         """
         The `Field` leaves and `State` groups of the class, in declaration order; needs
         no values.
@@ -192,19 +190,17 @@ class State(Mapping[str, Field[Any]]):
         """
         if cls not in _DECLARATIONS:
             hints = typing.get_type_hints(cls)
-            found: list[Decl | Group] = []
+            found: list[Decl] = []
             for field in dataclasses.fields(cls):  # type: ignore[arg-type]
                 hint, optional = _without_none(hints[field.name])
                 if typing.get_origin(hint) is Field:
                     (quantity,) = typing.get_args(hint)
                     found.append(Decl(field.name, quantity, optional))
                 elif isinstance(hint, type) and issubclass(hint, State):
-                    if optional:
-                        raise TypeError(
-                            f"group '{field.name}' of {cls.__name__} may not be optional;"
-                            " annotate it without '| None'"
-                        )
-                    found.append(Group(field.name, hint))
+                    raise TypeError(
+                        f"leaf '{field.name}' of {cls.__name__} is a nested State;"
+                        " annotate leaves with Field[Q], the framework is flat"
+                    )
             _DECLARATIONS[cls] = tuple(found)
         return _DECLARATIONS[cls]
 
@@ -214,13 +210,10 @@ class State(Mapping[str, Field[Any]]):
 
         Internal to the components package: consumers use the named operations.
         """
-        for entry in self.declarations():
-            if isinstance(entry, Group):
-                yield from getattr(self, entry.name).leaves()
-                continue
-            field = getattr(self, entry.name)
+        for declaration in self.declarations():
+            field = getattr(self, declaration.name)
             if field is not None:
-                yield entry, field
+                yield declaration, field
 
     def __getitem__(self, name: str) -> Field[Any]:
         """The present leaf `name`; `KeyError` when it is absent or None."""
@@ -238,7 +231,7 @@ class State(Mapping[str, Field[Any]]):
         return sum(1 for _ in self.leaves())
 
 
-_DECLARATIONS: dict[type[State], tuple[Decl | Group, ...]] = {}
+_DECLARATIONS: dict[type[State], tuple[Decl, ...]] = {}
 
 
 def _without_none(hint: Any) -> tuple[Any, bool]:
@@ -269,11 +262,7 @@ def allocate[S: State](
     leaves to allocate; the other optional leaves are None. Without it every leaf is allocated.
     """
     values: dict[str, Any] = {}
-    for entry in cls.declarations():
-        if isinstance(entry, Group):
-            values[entry.name] = allocate(entry.state, grid, allocator, fill=fill, only=only)
-            continue
-        declaration = entry
+    for declaration in cls.declarations():
         if declaration.optional and only is not None and declaration.name not in only:
             values[declaration.name] = None
             continue
@@ -288,14 +277,11 @@ def allocate[S: State](
 def copy[S: State](state: S, allocator: gtx_typing.Allocator | None) -> S:
     """A new state with a copy of each present leaf on the allocator; the plain leaves are shared."""
     copies: dict[str, Any] = {}
-    for entry in state.__class__.declarations():
-        if isinstance(entry, Group):
-            copies[entry.name] = copy(getattr(state, entry.name), allocator)
-            continue
-        field = getattr(state, entry.name)
+    for declaration in state.declarations():
+        field = getattr(state, declaration.name)
         if field is not None:
-            copies[entry.name] = Field(
-                entry.quantity, data_allocation.reallocate(field.data, allocator=allocator)
+            copies[declaration.name] = Field(
+                declaration.quantity, data_allocation.reallocate(field.data, allocator=allocator)
             )
     copied: S = dataclasses.replace(typing.cast(Any, state), **copies)
     return copied
@@ -309,26 +295,14 @@ def copy_into(target: State, source: State) -> None:
     from a view of itself. The source must hold every leaf of `target`; the plain
     leaves are untouched.
     """
-    for entry in target.declarations():
-        if isinstance(entry, Group):
-            copy_into(getattr(target, entry.name), getattr(source, entry.name))
-            continue
-        target_field: Field[Any] | None = getattr(target, entry.name)
-        source_field: Field[Any] | None = getattr(source, entry.name)
+    for declaration in target.declarations():
+        target_field: Field[Any] | None = getattr(target, declaration.name)
+        source_field: Field[Any] | None = getattr(source, declaration.name)
         if target_field is None or source_field is None:
             continue
         if target_field.data is not source_field.data:
             buffer: Any = target_field.data.ndarray  # NDArrayObject declares no __setitem__
             buffer[...] = source_field.data.ndarray
-
-
-def _flat_declarations(cls: type[State]) -> Iterator[Decl]:
-    """The `Decl` entries of `cls`, descending into the groups."""
-    for entry in cls.declarations():
-        if isinstance(entry, Group):
-            yield from _flat_declarations(entry.state)
-        else:
-            yield entry
 
 
 def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -341,7 +315,7 @@ def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None
     different classes is each class's own business.
     """
     variables: dict[str, str] = {}
-    for declaration in _flat_declarations(cls):
+    for declaration in cls.declarations():
         variable = (aliases or {}).get(declaration.name, declaration.quantity.standard_name)
         if variable is None:
             raise ValueError(f"leaf '{declaration.name}' of {cls.__name__} has no variable name")
@@ -366,8 +340,42 @@ def add_into(target: State, source: State, allocator: gtx_typing.Allocator | Non
 
     Raises `ValueError` when a name or a quantity of `source` has no match in `target`.
     """
-    declared = {entry.name: entry for entry in _flat_declarations(target.__class__)}
-    for declaration, field in source.leaves():
+    _add_leaves(target, source.leaves(), allocator)
+
+
+def sum_tendencies(target: State, source: State, allocator: gtx_typing.Allocator | None) -> None:
+    """
+    Add every tendency leaf of `source` into the matching leaf of `target`, in place.
+
+    A tendency leaf is one whose quantity derives from `Tendency`; the check is the
+    framework's, the consumer passes whole states. `target` declares, under the same
+    names and with the same quantities, every tendency `source` may hold; the other
+    leaves of `source` are not read.
+    """
+    _add_leaves(target, _of_kind(source, Tendency), allocator)
+
+
+def fluxes(state: State) -> dict[str, Field[Any]]:
+    """
+    The flux leaves of `state`, by name: outputs a process reports but never applies.
+
+    A flux leaf is one whose quantity derives from `Flux`; the check is the framework's.
+    """
+    return {declaration.name: field for declaration, field in _of_kind(state, Flux)}
+
+
+def _of_kind(state: State, kind: type[Quantity]) -> Iterator[tuple[Decl, Field[Any]]]:
+    """The leaves of `state` whose quantity derives from `kind`."""
+    for declaration, field in state.leaves():
+        if issubclass(declaration.quantity, kind):
+            yield declaration, field
+
+
+def _add_leaves(
+    target: State, leaves: Iterator[tuple[Decl, Field[Any]]], allocator: gtx_typing.Allocator | None
+) -> None:
+    declared = {entry.name: entry for entry in target.declarations()}
+    for declaration, field in leaves:
         target_declaration = declared.get(declaration.name)
         if target_declaration is None:
             raise ValueError(
