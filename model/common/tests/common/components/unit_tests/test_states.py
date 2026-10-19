@@ -18,8 +18,8 @@ def grid() -> base_grid.Grid:
     return simple.simple_grid()
 
 
-def test_prognostic_state_lists_its_five_leaves() -> None:
-    assert [d.name for d in states.PrognosticState.declarations()] == [
+def test_prognostic_state_lists_its_five_leaves(grid: base_grid.Grid) -> None:
+    assert list(fw.allocate(states.PrognosticState, grid, allocator=None)) == [
         "rho",
         "w",
         "vn",
@@ -31,9 +31,12 @@ def test_prognostic_state_lists_its_five_leaves() -> None:
 def test_tracer_state_allocates_the_configured_tracers_only(grid: base_grid.Grid) -> None:
     config = states.TracerConfig.from_ntracer(2)
     tracers = fw.allocate(states.TracerState, grid, allocator=None, only=config.active_names)
-    assert [d.name for d, _ in tracers.leaves()] == ["qv", "qc"]
+    assert list(tracers) == ["qv", "qc"]
     assert tracers.qi is None
-    assert all(d.optional for d in states.TracerState.declarations() if isinstance(d, fw.Decl))
+    assert all(
+        getattr(fw.allocate(states.TracerState, grid, allocator=None, only=()), name) is None
+        for name in states.TRACERS
+    )
 
 
 def test_tracer_state_copy_allocates_new_buffers_for_the_active_tracers(
@@ -47,8 +50,8 @@ def test_tracer_state_copy_allocates_new_buffers_for_the_active_tracers(
     assert np.all(np.asarray(copy.qv.data.ndarray) == 2.0)
 
 
-def test_prep_advection_merges_the_dycore_and_advection_views() -> None:
-    assert [d.name for d in states.PrepAdvection.declarations()] == [
+def test_prep_advection_merges_the_dycore_and_advection_views(grid: base_grid.Grid) -> None:
+    assert list(fw.allocate(states.PrepAdvection, grid, allocator=None)) == [
         "vn_traj",
         "mass_flx_me",
         "dynamical_vertical_mass_flux_at_cells_on_half_levels",
@@ -56,5 +59,5 @@ def test_prep_advection_merges_the_dycore_and_advection_views() -> None:
     ]
 
 
-def test_tracers_constant_matches_the_tracer_state() -> None:
-    assert tuple(d.name for d in states.TracerState.declarations()) == states.TRACERS
+def test_tracers_constant_matches_the_tracer_state(grid: base_grid.Grid) -> None:
+    assert tuple(fw.allocate(states.TracerState, grid, allocator=None)) == states.TRACERS

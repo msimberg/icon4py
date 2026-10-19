@@ -17,15 +17,14 @@ fields. The design and its trade-offs are in C2SM/icon4py-knowledge `mwe/compone
   different types to the checkers and the same array to gt4py. Stencils read `.data`.
 - `State`: a frozen, keyword-only dataclass of typed leaves. A leaf annotated
   `Field[Q] | None` is optional: `allocate` may leave it None. The framework is flat: a
-  leaf annotated with another `State` class is rejected. `declarations()` and `leaves()`
-  are internal to the components package; consumers use the mapping and the named
-  operations.
+  leaf annotated with another `State` class is an ordinary field the framework does not
+  manage. The declaration machinery is private to the framework; consumers use the
+  mapping and the named operations.
 - A state is a read-only `Mapping` from leaf name to field: `state[name]`, `for name in state`, `state.items()` (the verification view).
 - The named operations over the leaves: `fw.copy_into(target, source)` (the in-place,
   aliasing-aware copy), `fw.sum_tendencies(target, source, allocator)` (the in-place
   elementwise sums of the tendency leaves, the `Tendency` check being the framework's,
-  not the consumer's), `fw.zero(state)` (in place, keeping the buffers and the Nones),
-  the generic `fw.add_into(target, source, allocator)` and
+  not the consumer's), `fw.zero(state)` (in place, keeping the buffers and the Nones) and
   `file_variables(aliases=...)` (the output file variable of every leaf).
 - `allocate(State, grid, allocator, only=...)` makes a zero field per declaration (`only`
   names the optional leaves to allocate, the others stay None; a `fill(name, dims)`

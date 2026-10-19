@@ -46,7 +46,6 @@ __all__ = [
     "State",
     "Tendency",
     "TimeStepPair",
-    "add_into",
     "allocate",
     "copy",
     "copy_into",
@@ -149,15 +148,14 @@ class State(Mapping[str, Field[Any]]):
     """
     A frozen, keyword-only dataclass of typed leaves.
 
-    `Field` leaves are read back from the annotations by `declarations()`; plain leaves
-    (floats, ints, datetimes) are ordinary fields and are not listed. A leaf annotated
-    `Field[Q] | None` is optional: `allocate` may leave it None and `leaves()` skips it.
+    The `Field` leaves are read back from the annotations; plain leaves (floats, ints,
+    datetimes) are ordinary fields and are not listed. A leaf annotated `Field[Q] | None`
+    is optional: `allocate` may leave it None.
 
     A state is a read-only `Mapping` from leaf name to field: `state[name]`, `for name in
     state`, `state.items()`. States compare by identity and stay hashable: the Mapping's
-    dict equality would compare fields by alias, so it is overridden. `declarations` and
-    `leaves` are internal to the components package: consumers use the mapping and the
-    named operations (`allocate`, `copy`, `copy_into`, `file_variables`, `add_into`,
+    dict equality would compare fields by alias, so it is overridden. Consumers use the
+    mapping and the named operations (`allocate`, `copy`, `copy_into`, `file_variables`,
     `sum_tendencies`, `zero`).
     A leaf annotated with another `State` class is an ordinary dataclass field the
     framework does not manage; the tendency classification lives in the `Tendency` marker.
@@ -174,53 +172,45 @@ class State(Mapping[str, Field[Any]]):
     def __hash__(self) -> int:
         return id(self)
 
-    @classmethod
-    def declarations(cls) -> tuple[Decl, ...]:
-        """
-        The `Field` leaves and `State` groups of the class, in declaration order; needs
-        no values.
-
-        Internal to the components package: consumers use the named operations.
-        """
-        if cls not in _DECLARATIONS:
-            hints = typing.get_type_hints(cls)
-            found: list[Decl] = []
-            for field in dataclasses.fields(cls):  # type: ignore[arg-type]
-                hint, optional = _without_none(hints[field.name])
-                if typing.get_origin(hint) is Field:
-                    (quantity,) = typing.get_args(hint)
-                    found.append(Decl(field.name, quantity, optional))
-            _DECLARATIONS[cls] = tuple(found)
-        return _DECLARATIONS[cls]
-
-    def leaves(self) -> Iterator[tuple[Decl, Field[Any]]]:
-        """
-        The declarations with their fields, skipping the optional leaves that are None.
-
-        Internal to the components package: consumers use the named operations.
-        """
-        for declaration in self.declarations():
-            field = getattr(self, declaration.name)
-            if field is not None:
-                yield declaration, field
-
     def __getitem__(self, name: str) -> Field[Any]:
         """The present leaf `name`; `KeyError` when it is absent or None."""
-        for declaration, field in self.leaves():
+        for declaration, field in _leaves(self):
             if declaration.name == name:
                 return field
         raise KeyError(name)
 
     def __iter__(self) -> Iterator[str]:
         """The present leaf names, in declaration order."""
-        return (declaration.name for declaration, _ in self.leaves())
+        return (declaration.name for declaration, _ in _leaves(self))
 
     def __len__(self) -> int:
         """The number of present leaves."""
-        return sum(1 for _ in self.leaves())
+        return sum(1 for _ in _leaves(self))
 
 
 _DECLARATIONS: dict[type[State], tuple[Decl, ...]] = {}
+
+
+def _declarations(cls: type[State]) -> tuple[Decl, ...]:
+    """The `Field` leaves of the class: name, quantity, optional; in declaration order."""
+    if cls not in _DECLARATIONS:
+        hints = typing.get_type_hints(cls)
+        found = []
+        for field in dataclasses.fields(cls):  # type: ignore[arg-type]
+            hint, optional = _without_none(hints[field.name])
+            if typing.get_origin(hint) is Field:
+                (quantity,) = typing.get_args(hint)
+                found.append(Decl(field.name, quantity, optional))
+        _DECLARATIONS[cls] = tuple(found)
+    return _DECLARATIONS[cls]
+
+
+def _leaves(state: State) -> Iterator[tuple[Decl, Field[Any]]]:
+    """The declarations with their fields, skipping the optional leaves that are None."""
+    for declaration in _declarations(state.__class__):
+        field = getattr(state, declaration.name)
+        if field is not None:
+            yield declaration, field
 
 
 def _without_none(hint: Any) -> tuple[Any, bool]:
@@ -251,7 +241,7 @@ def allocate[S: State](
     leaves to allocate; the other optional leaves are None. Without it every leaf is allocated.
     """
     values: dict[str, Any] = {}
-    for declaration in cls.declarations():
+    for declaration in _declarations(cls):
         if declaration.optional and only is not None and declaration.name not in only:
             values[declaration.name] = None
             continue
@@ -266,7 +256,7 @@ def allocate[S: State](
 def copy[S: State](state: S, allocator: gtx_typing.Allocator | None) -> S:
     """A new state with a copy of each present leaf on the allocator; the plain leaves are shared."""
     copies: dict[str, Any] = {}
-    for declaration in state.declarations():
+    for declaration in _declarations(state.__class__):
         field = getattr(state, declaration.name)
         if field is not None:
             copies[declaration.name] = Field(
@@ -284,7 +274,7 @@ def copy_into(target: State, source: State) -> None:
     from a view of itself. The source must hold every leaf of `target`; the plain
     leaves are untouched.
     """
-    for declaration in target.declarations():
+    for declaration in _declarations(target.__class__):
         target_field: Field[Any] | None = getattr(target, declaration.name)
         source_field: Field[Any] | None = getattr(source, declaration.name)
         if target_field is None or source_field is None:
@@ -304,7 +294,7 @@ def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None
     different classes is each class's own business.
     """
     variables: dict[str, str] = {}
-    for declaration in cls.declarations():
+    for declaration in _declarations(cls):
         variable = (aliases or {}).get(declaration.name, declaration.quantity.standard_name)
         if variable is None:
             raise ValueError(f"leaf '{declaration.name}' of {cls.__name__} has no variable name")
@@ -315,21 +305,6 @@ def file_variables(cls: type[State], *, aliases: Mapping[str, str] | None = None
             )
         variables[variable] = declaration.name
     return variables
-
-
-def add_into(target: State, source: State, allocator: gtx_typing.Allocator | None) -> None:
-    """
-    Add every field of `source` into the matching leaf of `target`, in place.
-
-    `target` is a state of optional leaves that declares, under the same names and with
-    the same quantities, every field `source` may hold. A leaf that is None is made
-    first: a fresh buffer on `allocator`, holding the source's values, set past the
-    frozen guard (the documented way a frozen instance is built). A present leaf
-    therefore means "seen at least once" across steps. The plain leaves are untouched.
-
-    Raises `ValueError` when a name or a quantity of `source` has no match in `target`.
-    """
-    _add_leaves(target, source.leaves(), allocator)
 
 
 def sum_tendencies(target: State, source: State, allocator: gtx_typing.Allocator | None) -> None:
@@ -346,7 +321,7 @@ def sum_tendencies(target: State, source: State, allocator: gtx_typing.Allocator
 
 def _of_kind(state: State, kind: type[Quantity]) -> Iterator[tuple[Decl, Field[Any]]]:
     """The leaves of `state` whose quantity derives from `kind`."""
-    for declaration, field in state.leaves():
+    for declaration, field in _leaves(state):
         if issubclass(declaration.quantity, kind):
             yield declaration, field
 
@@ -354,7 +329,7 @@ def _of_kind(state: State, kind: type[Quantity]) -> Iterator[tuple[Decl, Field[A
 def _add_leaves(
     target: State, leaves: Iterator[tuple[Decl, Field[Any]]], allocator: gtx_typing.Allocator | None
 ) -> None:
-    declared = {entry.name: entry for entry in target.declarations()}
+    declared = {entry.name: entry for entry in _declarations(target.__class__)}
     for declaration, field in leaves:
         target_declaration = declared.get(declaration.name)
         if target_declaration is None:
@@ -382,7 +357,7 @@ def _add_leaves(
 
 def zero(state: State) -> None:
     """Set every present leaf of `state` to zero, in place, keeping the buffers and the Nones."""
-    for _, field in state.leaves():
+    for _, field in _leaves(state):
         buffer: Any = field.data.ndarray  # NDArrayObject declares no __setitem__
         buffer[...] = 0.0
 

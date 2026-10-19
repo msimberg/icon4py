@@ -87,33 +87,30 @@ def test_zeros_resolves_the_precision_at_allocation(
 
 
 def test_state_declarations_list_the_field_leaves_and_groups(grid: base_grid.Grid) -> None:
-    assert [
-        (d.name, d.quantity, d.optional) for d in Column.declarations() if isinstance(d, fw.Decl)
-    ] == [
-        ("pressure", Pressure, False),
-        ("salt", Salt, False),
-    ]
+    assert list(
+        Column(
+            pressure=fw.zeros(Pressure, grid, allocator=None),
+            salt=fw.zeros(Salt, grid, allocator=None),
+            dtime=1.0,
+        )
+    ) == ["pressure", "salt"]
     column = Column(
         pressure=fw.zeros(Pressure, grid, allocator=None),
         salt=fw.zeros(Salt, grid, allocator=None),
         dtime=1.0,
     )
-    assert [d.name for d, _ in column.leaves()] == ["pressure", "salt"]
+    assert list(column) == ["pressure", "salt"]
     with pytest.raises(dataclasses.FrozenInstanceError):
         column.dtime = 2.0  # type: ignore[misc]
 
 
 def test_optional_leaves_are_declared_and_skipped_when_absent(grid: base_grid.Grid) -> None:
-    assert [d.optional for d in Tracers.declarations() if isinstance(d, fw.Decl)] == [
-        False,
-        True,
-        True,
-    ]
+    assert list(fw.allocate(Tracers, grid, allocator=None)) == ["pressure", "salt", "vt"]
     tracers = fw.allocate(Tracers, grid, allocator=None, only=("vt",))
     assert tracers.salt is None
     assert tracers.vt is not None
-    assert [d.name for d, _ in tracers.leaves()] == ["pressure", "vt"]
-    assert [d.name for d, _ in fw.allocate(Tracers, grid, allocator=None).leaves()] == [
+    assert list(tracers) == ["pressure", "vt"]
+    assert list(fw.allocate(Tracers, grid, allocator=None)) == [
         "pressure",
         "salt",
         "vt",
@@ -176,29 +173,6 @@ def test_file_variables_names_every_leaf() -> None:
         fw.file_variables(Twins)
 
 
-def test_add_into_sums_into_optional_leaves_and_zero_keeps_them(grid: base_grid.Grid) -> None:
-    class Totals(fw.State):
-        salt: fw.Field[Salt] | None = None
-        pressure: fw.Field[Pressure] | None = None
-        vt: fw.Field[Vt] | None = None
-
-    totals = fw.allocate(Totals, grid, allocator=None, only=())
-    assert list(totals) == []
-
-    tracers = fw.allocate(Tracers, grid, allocator=None, fill=lambda name, dims: 1.0)
-    fw.add_into(totals, tracers, allocator=None)
-    fw.add_into(totals, tracers, allocator=None)
-    assert list(totals) == ["salt", "pressure", "vt"]
-
-    salt = totals.salt
-    assert salt is not None
-    assert np.all(np.asarray(salt.data.ndarray) == 2.0)
-
-    fw.zero(totals)
-    assert list(totals) == ["salt", "pressure", "vt"]
-    assert np.all(np.asarray(salt.data.ndarray) == 0.0)
-
-
 def test_sum_tendencies_sums_only_the_tendency_leaves(grid: base_grid.Grid) -> None:
     class TendencyOfSalt(fw.Tendency, dims=(dims.CellDim,), units="1"): ...
 
@@ -219,22 +193,30 @@ def test_sum_tendencies_sums_only_the_tendency_leaves(grid: base_grid.Grid) -> N
     assert salt is not None
     assert np.all(np.asarray(salt.data.ndarray) == 4.0)
 
+    fw.zero(totals)
+    assert list(totals) == ["tend_salt"]
+    assert np.all(np.asarray(salt.data.ndarray) == 0.0)
 
-def test_add_into_rejects_unmatched_names_and_quantities(grid: base_grid.Grid) -> None:
+
+def test_sum_tendencies_rejects_unmatched_names_and_quantities(grid: base_grid.Grid) -> None:
+    class TendencyOfSalt(fw.Tendency, dims=(dims.CellDim,), units="1"): ...
+
+    class TendencyOfPressure(fw.Tendency, dims=(dims.CellDim,), units="Pa"): ...
+
     class Totals(fw.State):
-        salt: fw.Field[Salt] | None = None
+        tend_salt: fw.Field[TendencyOfSalt] | None = None
 
-    class Winds(fw.State):
-        vt: fw.Field[Vt]
+    class WrongName(fw.State):
+        tend_vt: fw.Field[TendencyOfPressure]
 
     class WrongQuantity(fw.State):
-        salt: fw.Field[Pressure]
+        tend_salt: fw.Field[TendencyOfPressure]
 
     totals = fw.allocate(Totals, grid, allocator=None, only=())
-    with pytest.raises(ValueError, match="vt"):
-        fw.add_into(totals, fw.allocate(Winds, grid, allocator=None), allocator=None)
-    with pytest.raises(ValueError, match="Pressure"):
-        fw.add_into(totals, fw.allocate(WrongQuantity, grid, allocator=None), allocator=None)
+    with pytest.raises(ValueError, match="tend_vt"):
+        fw.sum_tendencies(totals, fw.allocate(WrongName, grid, allocator=None), allocator=None)
+    with pytest.raises(ValueError, match="TendencyOfPressure"):
+        fw.sum_tendencies(totals, fw.allocate(WrongQuantity, grid, allocator=None), allocator=None)
 
 
 def test_allocate_follows_the_declared_dims(grid: base_grid.Grid) -> None:
@@ -289,8 +271,8 @@ def test_empty_is_the_output_of_a_component_that_writes_no_field(grid: base_grid
             return self.buffers(out)
 
     sink = Sink(grid, allocator=None)
-    assert fw.Empty.declarations() == ()
-    assert list(fw.Empty().leaves()) == []
+    assert list(fw.Empty()) == []
+    assert list(fw.Empty()) == []
     own = sink.run(Halve.Input(pressure=fw.zeros(Pressure, grid, allocator=None)))
     assert isinstance(own, fw.Empty) and own is sink.output
 
