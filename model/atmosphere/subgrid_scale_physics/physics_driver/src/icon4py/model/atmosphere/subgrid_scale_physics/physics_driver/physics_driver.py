@@ -45,10 +45,10 @@ if TYPE_CHECKING:
 
 __all__ = ["PhysicsDriver", "PhysicsProcess", "ProcessTimeControl", "Step", "bind"]
 
-type Step = Callable[[physics_state.EntryState], states.ProcessOutput]
+type Step = Callable[[physics_state.EntryState], fw.State]
 
 
-def bind[I: fw.State, O: states.ProcessOutput](
+def bind[I: fw.State, O: fw.State](
     run: Callable[[I], O], collect_input: Callable[[physics_state.EntryState], I]
 ) -> Step:
     """
@@ -155,7 +155,7 @@ class PhysicsDriver(fw.Component):
         # the last output of each process, reused on the steps it is not active
         # TODO(jcanton): part 02 fix this. Key by the process's component (identity), once the
         # process holds it, and drop `PhysicsProcess.name`, which exists only for this key.
-        self.outputs: dict[str, states.ProcessOutput] = {}
+        self.outputs: dict[str, fw.State] = {}
 
         cells = {"horizontal_start": gtx.int32(0), "horizontal_end": gtx.int32(grid.num_cells)}
         edges = {"horizontal_start": gtx.int32(0), "horizontal_end": gtx.int32(grid.num_edges)}

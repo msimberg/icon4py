@@ -33,16 +33,11 @@ __all__ = [
     "DycoreDiagnostics",
     "DycoreForcing",
     "PrepAdvection",
-    "ProcessOutput",
     "PrognosticState",
     "StepInfo",
     "TracerConfig",
     "TracerState",
 ]
-
-
-class ProcessOutput(fw.State):
-    """A physics process output: its tendency and flux leaves, flat."""
 
 
 class PrognosticState(fw.State):

@@ -34,25 +34,25 @@ from .utils import (
 )
 
 
-class MoistOutput(states.ProcessOutput):
+class MoistOutput(fw.State):
     """A process output with a tendency and a diagnostic."""
 
     tend_qv: fw.Field[qty.TendencyOfQvOnCellK]
     pflx: fw.Field[qty.PrecipitationFluxOnCellK]
 
 
-class ThermoOutput(states.ProcessOutput):
+class ThermoOutput(fw.State):
     tend_qv: fw.Field[qty.TendencyOfQvOnCellK]
     tend_temperature: fw.Field[qty.TendencyOfTemperatureOnCellK]
     tend_w: fw.Field[qty.TendencyOfWOnCellKHalf]
 
 
-class WindOutput(states.ProcessOutput):
+class WindOutput(fw.State):
     tend_u: fw.Field[qty.TendencyOfUOnCellK]
     tend_v: fw.Field[qty.TendencyOfVOnCellK]
 
 
-class LoneWindOutput(states.ProcessOutput):
+class LoneWindOutput(fw.State):
     tend_u: fw.Field[qty.TendencyOfUOnCellK]
 
 

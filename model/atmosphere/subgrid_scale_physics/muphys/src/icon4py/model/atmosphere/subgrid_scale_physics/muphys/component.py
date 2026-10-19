@@ -29,7 +29,7 @@ from icon4py.model.common import (
     time,
     type_alias as ta,
 )
-from icon4py.model.common.components import framework as fw, quantities as qty, states
+from icon4py.model.common.components import framework as fw, quantities as qty
 from icon4py.model.common.grid import horizontal as h_grid
 from icon4py.model.common.math.stencils import generic_math_operations
 from icon4py.model.common.physics.thermodynamics import compute_tendencies
@@ -58,7 +58,7 @@ class MuphysComponent(fw.Component):
     buffers keep what they hold (zeros in the component's own buffers).
     """
 
-    class Output(states.ProcessOutput):
+    class Output(fw.State):
         """
         What the muphys granule reports: its tendencies and its precipitation fluxes.
 
