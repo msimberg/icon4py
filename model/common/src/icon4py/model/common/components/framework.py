@@ -41,7 +41,6 @@ __all__ = [
     "Component",
     "Empty",
     "Field",
-    "Flux",
     "PredictorCorrectorPair",
     "Quantity",
     "State",
@@ -52,7 +51,6 @@ __all__ = [
     "copy",
     "copy_into",
     "file_variables",
-    "fluxes",
     "sum_tendencies",
     "zero",
     "zeros",
@@ -101,10 +99,6 @@ class Quantity:
 
 class Tendency(Quantity):
     """Marker base of the tendencies: what the physics driver accumulates."""
-
-
-class Flux(Quantity):
-    """Marker base of the fluxes: outputs a process reports but never applies."""
 
 
 class Field[Q: Quantity]:
@@ -164,9 +158,9 @@ class State(Mapping[str, Field[Any]]):
     dict equality would compare fields by alias, so it is overridden. `declarations` and
     `leaves` are internal to the components package: consumers use the mapping and the
     named operations (`allocate`, `copy`, `copy_into`, `file_variables`, `add_into`,
-    `sum_tendencies`, `fluxes`, `zero`).
+    `sum_tendencies`, `zero`).
     A leaf annotated with another `State` class is rejected: the framework is flat, and
-    the classification of leaves (tendencies, fluxes) lives in the quantity markers.
+    the tendency classification lives in the `Tendency` marker.
     """
 
     def __init_subclass__(cls) -> None:
@@ -353,15 +347,6 @@ def sum_tendencies(target: State, source: State, allocator: gtx_typing.Allocator
     leaves of `source` are not read.
     """
     _add_leaves(target, _of_kind(source, Tendency), allocator)
-
-
-def fluxes(state: State) -> dict[str, Field[Any]]:
-    """
-    The flux leaves of `state`, by name: outputs a process reports but never applies.
-
-    A flux leaf is one whose quantity derives from `Flux`; the check is the framework's.
-    """
-    return {declaration.name: field for declaration, field in _of_kind(state, Flux)}
 
 
 def _of_kind(state: State, kind: type[Quantity]) -> Iterator[tuple[Decl, Field[Any]]]:

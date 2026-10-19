@@ -220,18 +220,6 @@ def test_sum_tendencies_sums_only_the_tendency_leaves(grid: base_grid.Grid) -> N
     assert np.all(np.asarray(salt.data.ndarray) == 4.0)
 
 
-def test_fluxes_views_only_the_flux_leaves(grid: base_grid.Grid) -> None:
-    class FluxOfPressure(fw.Flux, dims=(dims.CellDim,), units="Pa"): ...
-
-    class Report(fw.State):
-        tend_salt: fw.Field[Salt]
-        pflx: fw.Field[FluxOfPressure]
-
-    report = fw.allocate(Report, grid, allocator=None)
-    assert list(fw.fluxes(report)) == ["pflx"]
-    assert fw.fluxes(report)["pflx"] is report.pflx
-
-
 def test_nested_states_are_rejected() -> None:
     class Inner(fw.State):
         salt: fw.Field[Salt]

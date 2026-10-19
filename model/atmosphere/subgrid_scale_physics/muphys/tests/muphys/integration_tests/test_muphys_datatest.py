@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import numpy as np
 import pytest
@@ -27,6 +27,10 @@ from icon4py.model.common.states.data import QC, QG, QI, QR, QS, QV
 from icon4py.model.testing import definitions, test_utils
 
 from ..fixtures import *  # noqa: F403
+
+
+#: the granule's precipitation output arguments, in its own signature order
+PRECIPITATION_ARGS: Final[tuple[str, ...]] = ("pflx", "pr", "ps", "pi", "pg", "pre")
 
 
 if TYPE_CHECKING:
@@ -156,10 +160,8 @@ def test_muphys_granule(
     )
     # the granule's precipitation outputs, by its own argument names
     direct_precip = {
-        name: field.data
-        for name, field in fw.fluxes(
-            fw.allocate(muphys_component.Output, icon_grid, allocator)
-        ).items()
+        name: gtx.zeros(state["te"].domain, dtype=ta.wpfloat, allocator=allocator)
+        for name in PRECIPITATION_ARGS
     }
     muphys_program(
         dz=state["dz"],

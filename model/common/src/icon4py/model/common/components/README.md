@@ -25,7 +25,7 @@ fields. The design and its trade-offs are in C2SM/icon4py-knowledge `mwe/compone
   aliasing-aware copy), `fw.sum_tendencies(target, source, allocator)` (the in-place
   elementwise sums of the tendency leaves, the `Tendency` check being the framework's,
   not the consumer's), `fw.zero(state)` (in place, keeping the buffers and the Nones),
-  the generic `fw.add_into(target, source, allocator)`, the `fw.fluxes(state)` view and
+  the generic `fw.add_into(target, source, allocator)` and
   `file_variables(aliases=...)` (the output file variable of every leaf).
 - `allocate(State, grid, allocator, only=...)` makes a zero field per declaration (`only`
   names the optional leaves to allocate, the others stay None; a `fill(name, dims)`
