@@ -58,14 +58,18 @@ class MuphysComponent(fw.Component):
     buffers keep what they hold (zeros in the component's own buffers).
     """
 
+    class Input(fw.State):
+        te: fw.Field[qty.TemperatureOnCellK]
+        p: fw.Field[qty.PressureOnCellK]
+        rho: fw.Field[qty.RhoOnCellK]
+        qv: fw.Field[qty.QvOnCellK]
+        qc: fw.Field[qty.QcOnCellK]
+        qi: fw.Field[qty.QiOnCellK]
+        qr: fw.Field[qty.QrOnCellK]
+        qs: fw.Field[qty.QsOnCellK]
+        qg: fw.Field[qty.QgOnCellK]
+
     class Output(fw.State):
-        """
-        What the muphys granule reports: its tendencies and its precipitation fluxes.
-
-        The fluxes are not tendencies and are never applied to the model state; they are
-        reported as they come.
-        """
-
         tend_temperature: fw.Field[qty.TendencyOfTemperatureOnCellK]
         tend_qv: fw.Field[qty.TendencyOfQvOnCellK]
         tend_qc: fw.Field[qty.TendencyOfQcOnCellK]
@@ -79,17 +83,6 @@ class MuphysComponent(fw.Component):
         pi: fw.Field[qty.IcefallFluxOnCellK]
         pg: fw.Field[qty.GraupelfallFluxOnCellK]
         pre: fw.Field[qty.PrecipitationEnergyFluxOnCellK]
-
-    class Input(fw.State):
-        te: fw.Field[qty.TemperatureOnCellK]
-        p: fw.Field[qty.PressureOnCellK]
-        rho: fw.Field[qty.RhoOnCellK]
-        qv: fw.Field[qty.QvOnCellK]
-        qc: fw.Field[qty.QcOnCellK]
-        qi: fw.Field[qty.QiOnCellK]
-        qr: fw.Field[qty.QrOnCellK]
-        qs: fw.Field[qty.QsOnCellK]
-        qg: fw.Field[qty.QgOnCellK]
 
     def __init__(
         self,
