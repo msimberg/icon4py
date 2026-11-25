@@ -21,7 +21,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Description of symbols" href="symbols_description.html" />
-    <link rel="prev" title="Dycore numerical documentation (velocity advection)" href="dycore_numerics_advection.html" /> 
+    <link rel="prev" title="Dycore numerical documentation" href="dycore_numerics.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -46,7 +46,6 @@
               <p class="caption" role="heading"><span class="caption-text">Numerical documentation:</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="reference internal" href="dycore_numerics.html">Dycore numerical documentation</a><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="dycore_numerics_advection.html">Dycore numerical documentation (velocity advection)</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Dycore numerical documentation (solve nonhydro)</a></li>
 </ul>
 </li>
@@ -89,7 +88,7 @@
 <p>This page documents the “solve-nonhydro” part of the dycore.</p>
 <dl class="py method">
 <dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">SolveNonhydro.</span></span><span class="sig-name descname"><span class="pre">run_predictor_step</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">diagnostic_state_nh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">DiagnosticStateNonHydro</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prognostic_states</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">TimeStepPair</span><span class="p"><span class="pre">[</span></span><span class="pre">PrognosticState</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z_fields</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="_source/icon4py.model.atmosphere.dycore.html#icon4py.model.atmosphere.dycore.solve_nonhydro.IntermediateFields" title="icon4py.model.atmosphere.dycore.solve_nonhydro.IntermediateFields"><span class="pre">IntermediateFields</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtime</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">at_initial_timestep</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">at_first_substep</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_iau_active</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iau_wgt_dyn</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span></dt>
+<span class="sig-prename descclassname"><span class="pre">SolveNonhydro.</span></span><span class="sig-name descname"><span class="pre">run_predictor_step</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="_source/icon4py.model.atmosphere.dycore.html#icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro.Input" title="icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro.Input"><span class="pre">Input</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">output</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="_source/icon4py.model.atmosphere.dycore.html#icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro.Output" title="icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro.Output"><span class="pre">Output</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z_fields</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="_source/icon4py.model.atmosphere.dycore.html#icon4py.model.atmosphere.dycore.solve_nonhydro.IntermediateFields" title="icon4py.model.atmosphere.dycore.solve_nonhydro.IntermediateFields"><span class="pre">IntermediateFields</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span></dt>
 <dd></dd></dl>
 
 </section>
@@ -98,7 +97,7 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="dycore_numerics_advection.html" class="btn btn-neutral float-left" title="Dycore numerical documentation (velocity advection)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="dycore_numerics.html" class="btn btn-neutral float-left" title="Dycore numerical documentation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="symbols_description.html" class="btn btn-neutral float-right" title="Description of symbols" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
