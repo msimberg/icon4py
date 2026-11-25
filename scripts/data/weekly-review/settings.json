@@ -1,0 +1,7 @@
+{
+  "defaultProvider": "cscs-inference",
+  "defaultModel": "zai-org/GLM-5.3-Flash",
+  "packages": [
+    "npm:@gotgenes/pi-subagents@25.0.5"
+  ]
+}
