@@ -70,7 +70,7 @@ DEFAULT_REPO = "msimberg/icon4py"
 UPSTREAM_REPO = "C2SM/icon4py"
 WORKFLOW_FILENAME = "weekly-review.yml"
 
-INFERENCE_HOSTS = ["api.inference.cscs.ch"]
+EGRESS_HOSTS = ["api.inference.cscs.ch", "registry.npmjs.org"]
 NETNS = "weekly-review"
 SANDBOX_TOOLS = "subagent,get_subagent_result,read,ls,write,edit"
 FINDINGS_MOUNT = "/tmp/weekly-review-findings"
@@ -816,7 +816,7 @@ def netns_exec_prefix() -> list[str]:
     user so the review session itself runs unprivileged.
     """
     return [
-        "sudo", "-E",
+        "sudo", "--preserve-env=CSCS_INFERENCE_API_KEY,PATH,TZ",
         "ip", "netns", "exec", NETNS,
         "setpriv",
         f"--reuid={os.getuid()}", f"--regid={os.getgid()}", "--clear-groups",
@@ -836,7 +836,7 @@ def labels(
     """Create the ai-review:* labels if missing."""
     token = github_token()
     if not token:
-        log("Error: GITHUB_TOKEN (or GH_TOKEN) is required to create labels.", file=sys.stderr)
+        LOGGER.error("GITHUB_TOKEN (or GH_TOKEN) is required to create labels.")
         raise typer.Exit(code=1)
     target = github_repo(repo)
     gh = GitHub(token, target)
@@ -1002,7 +1002,7 @@ def _run(
         log(f"Note: targeting {UPSTREAM_REPO} for a dry run; pass --repo to choose another repo.")
     checkout = checkout.resolve()
     if not (checkout / ".git").exists():
-        log(f"Error: {checkout} is not a git checkout.", file=sys.stderr)
+        LOGGER.error(f"{checkout} is not a git checkout.")
         raise typer.Exit(code=1)
     commit = subprocess.run(
         ["git", "-C", str(checkout), "rev-parse", "HEAD"],
@@ -1017,7 +1017,7 @@ def _run(
 
     token = github_token()
     if publish and not token:
-        log("Error: --publish requires GITHUB_TOKEN (or GH_TOKEN).", file=sys.stderr)
+        LOGGER.error("--publish requires GITHUB_TOKEN (or GH_TOKEN).")
         raise typer.Exit(code=1)
     gh = GitHub(token, repo)
 
@@ -1081,7 +1081,7 @@ def _run(
     )
     cmd = netns_exec_prefix() + sandbox_cmd if netns else sandbox_cmd
     if netns:
-        log(f"Running inside the netns firewall (allowed egress: {', '.join(INFERENCE_HOSTS)}).")
+        log(f"Running inside the netns firewall (allowed egress: {', '.join(EGRESS_HOSTS)}).")
     try:
         returncode = stream_sandbox_progress(cmd, sessions_path)
     finally:
@@ -1091,7 +1091,7 @@ def _run(
 
     report_candidates = sorted(reports_path.glob("*.md"))
     if not report_candidates:
-        log("Error: the review session wrote no overview report.", file=sys.stderr)
+        LOGGER.error("The review session wrote no overview report.")
         raise typer.Exit(code=1)
     report_path = report_candidates[-1]
     accepted = validate_accepted(load_json(findings_path / "accepted.json", "accepted.json"))

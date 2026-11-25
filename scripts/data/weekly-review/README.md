@@ -30,8 +30,10 @@ only the findings, reports, and session directories. They cannot run `bash` or
 
 Only the host driver has `GITHUB_TOKEN`. The optional network namespace
 firewall (`netns_firewall.py`, enabled with `--netns` in CI) restricts egress
-to DNS through the host resolvers and HTTPS to `api.inference.cscs.ch`. All
-other destinations are blocked, including github.com.
+to HTTPS to `api.inference.cscs.ch` and `registry.npmjs.org`. The registry
+serves the pinned subagent package. Other destinations, including github.com,
+are blocked. The setup resolves required hosts on the host and writes their
+addresses into the namespace's `/etc/hosts`.
 
 ## Issues and labels
 
@@ -190,7 +192,7 @@ Local runs need `bwrap` (bubblewrap) and `pi` on PATH. The optional `--netns`
 firewall additionally needs root, `iptables`, and `nftables`. Configure it with:
 
 ```bash
-sudo python3 scripts/data/weekly-review/netns_firewall.py setup api.inference.cscs.ch
+sudo python3 scripts/data/weekly-review/netns_firewall.py setup api.inference.cscs.ch registry.npmjs.org
 ./scripts/run weekly-review run --netns
 sudo python3 scripts/data/weekly-review/netns_firewall.py teardown
 ```

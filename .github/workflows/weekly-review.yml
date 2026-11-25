@@ -60,10 +60,10 @@ jobs:
           bwrap --version | head -1
 
       - name: Set up the network firewall
-        # The review session may only reach the inference endpoint. All other
-        # egress (github.com included) is dropped inside the namespace.
+        # Only the inference endpoint and the pinned package registry may be
+        # reached. All other egress, including github.com, is blocked.
         run: |
-          sudo python3 ./scripts/data/weekly-review/netns_firewall.py setup api.inference.cscs.ch
+          sudo python3 ./scripts/data/weekly-review/netns_firewall.py setup api.inference.cscs.ch registry.npmjs.org
       - name: Run review
         env:
           CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}

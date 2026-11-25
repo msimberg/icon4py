@@ -105,7 +105,15 @@ def cmd_setup(hosts: list[str]) -> None:
     if not hosts:
         die("usage: netns_firewall.py setup <host> [<host>...]")
 
-    allowed = [ip for ip in resolve_ips(hosts) if not ip.startswith(("127.", "10.201."))]
+    resolved = [(host, resolve_ips([host])) for host in hosts]
+    allowed = sorted(
+        {
+            address
+            for _, addresses in resolved
+            for address in addresses
+            if not address.startswith(("127.", "10.201."))
+        }
+    )
     if not allowed:
         die(f"no usable addresses for: {hosts}")
     print(f"Allowed egress IPs: {', '.join(allowed)}")
@@ -128,6 +136,14 @@ def cmd_setup(hosts: list[str]) -> None:
             for server in resolvers():
                 handle.write(f"nameserver {server}\n")
 
+        # ip netns exec bind-mounts this over /etc/hosts, so required hosts do
+        # not depend on a resolver inside the namespace. URLs retain their
+        # original names for TLS validation.
+        with open(f"{NETNS_DIR}/hosts", "w", encoding="utf-8") as handle:
+            for host, addresses in resolved:
+                for address in addresses:
+                    handle.write(f"{address}\t{host}\n")
+
         # NAT the subnet out of the host's default interface and allow forwarding.
         sh(["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", SUBNET, "-o", wan, "-j", "MASQUERADE"])
         sh(["iptables", "-A", "FORWARD", "-s", SUBNET, "-j", "ACCEPT"])
@@ -146,12 +162,11 @@ def cmd_setup(hosts: list[str]) -> None:
 
 def cmd_teardown() -> None:
     require_root()
+    wan = default_iface()
     if ns_exists():
         sh(["ip", "netns", "del", NETNS])
-    # The MASQUERADE rule cannot be matched exactly without knowing the
-    # interface, so delete by subnet match and tolerate failure.
     subprocess.run(
-        ["iptables", "-t", "nat", "-D", "POSTROUTING", "-s", SUBNET, "-j", "MASQUERADE"],
+        ["iptables", "-t", "nat", "-D", "POSTROUTING", "-s", SUBNET, "-o", wan, "-j", "MASQUERADE"],
         capture_output=True,
     )
     subprocess.run(["iptables", "-D", "FORWARD", "-s", SUBNET, "-j", "ACCEPT"], capture_output=True)
