@@ -223,6 +223,10 @@ class GitHub:
     def bot_login(self) -> str | None:
         if not self.authed:
             return None
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            # The automatic GITHUB_TOKEN cannot call GET /user. Actions writes
+            # issue events with this actor identity.
+            return "github-actions[bot]"
         me = self.request("GET", "https://api.github.com/user")
         return me.get("login") if isinstance(me, dict) else None
 
