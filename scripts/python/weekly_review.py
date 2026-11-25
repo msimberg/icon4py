@@ -10,39 +10,28 @@
 
 """Weekly icon4py review published as GitHub issues.
 
-This host-side driver reads and writes the tracker, computes the diff
-baseline, and starts the sandboxed pi review in scripts/data/weekly-review/.
-The sandbox does not receive GitHub credentials or network access.
+The host collects tracked issues, prepares pi packages, and reconciles findings.
+AWF isolates the agent. Its API proxy holds the upstream inference credential.
 
-Commands: `run` for the pipeline, `labels` to create missing labels.
-
-Human authority rules:
-- Issues labeled `ai-review:invalid` are ignored.
-- Issues closed by a human are not reopened.
-- Issues closed by the pipeline are included for 30 days so that re-detection
-  can reopen them.
-
-There is no committed baseline. The head commit of the previous successful
-workflow run provides the baseline. Local runs default to `msimberg/icon4py`.
-GITHUB_REPOSITORY takes precedence. Use `--repo` to select another repository.
+Use ``scripts/run weekly-review run --help`` for the required run configuration.
+Local invocations are dry runs unless ``--publish`` is explicit.
 """
 
 from __future__ import annotations
 
-import base64
 import json
-import os
 import logging
+import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
-
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -51,78 +40,7 @@ from zoneinfo import ZoneInfo
 import typer
 
 
-cli = typer.Typer(
-    name="weekly-review",
-    no_args_is_help=True,
-    help="Weekly automated review of icon4py, published as GitHub issues.",
-)
-
-
-TZ = ZoneInfo("Europe/Zurich")
-_SCRIPTS_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = _SCRIPTS_DIR.parent
-DATA_DIR = _SCRIPTS_DIR / "data" / "weekly-review"
-SKILL_PATH = DATA_DIR / "SKILL.md"
-
-# Local runs default to the fork so a stray --publish cannot touch upstream.
-# CI always sets GITHUB_REPOSITORY, which takes precedence.
-DEFAULT_REPO = "msimberg/icon4py"
-UPSTREAM_REPO = "C2SM/icon4py"
-WORKFLOW_FILENAME = "weekly-review.yml"
-
-EGRESS_HOSTS = ["api.inference.cscs.ch", "registry.npmjs.org"]
-NETNS = "weekly-review"
-SANDBOX_TOOLS = "subagent,get_subagent_result,read,ls,write,edit"
-FINDINGS_MOUNT = "/tmp/weekly-review-findings"
-REPORTS_MOUNT = "/tmp/review-reports"
-
-MARKER_LABEL = "ai-review"
-NEEDS_TRIAGE_LABEL = "ai-review:needs-triage"
-CONFIRMED_LABEL = "ai-review:confirmed"
-INVALID_LABEL = "ai-review:invalid"
-
-LABELS = {
-    MARKER_LABEL: {
-        "color": "1d76db",
-        "description": "Filed by the automated weekly review",
-    },
-    NEEDS_TRIAGE_LABEL: {
-        "color": "fbca04",
-        "description": "Automated finding no human has checked yet",
-    },
-    CONFIRMED_LABEL: {
-        "color": "0e8a16",
-        "description": "A human checked this finding and confirmed it (human-set)",
-    },
-    INVALID_LABEL: {
-        "color": "e99695",
-        "description": "A human rejected this finding; the pipeline ignores it (human-set)",
-    },
-}
-
-REOPEN_WINDOW_DAYS = 30
-FIXEDNESS_VERDICTS = {"fixed", "persists", "unknown", "not-detected"}
-REQUIRED_FINDING_FIELDS = {
-    "title",
-    "severity",
-    "confidence",
-    "description",
-    "evidence",
-    "file",
-    "lines",
-    "symbol",
-    "suggested_fix",
-    "reviewer",
-    "tags",
-}
-
-METADATA_BEGIN = "<!-- weekly-review:metadata"
-METADATA_END = "-->"
-
-# ---------------------------------------------------------------------------
-# Small helpers
-# ---------------------------------------------------------------------------
-
+cli = typer.Typer(name="weekly-review", no_args_is_help=True, help=__doc__)
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -131,569 +49,742 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 LOGGER = logging.getLogger("weekly-review")
+TZ = ZoneInfo("Europe/Zurich")
+DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "weekly-review"
+WORKFLOW_FILENAME = "weekly-review.yml"
+GITHUB_TIMEOUT = 60
+
+MARKER_LABEL = "ai-review"
+NEEDS_TRIAGE_LABEL = "ai-review:needs-triage"
+CONFIRMED_LABEL = "ai-review:confirmed"
+INVALID_LABEL = "ai-review:invalid"
+LABELS = {
+    MARKER_LABEL: {"color": "1d76db", "description": "Filed by the weekly review"},
+    NEEDS_TRIAGE_LABEL: {"color": "fbca04", "description": "Finding not checked by a human"},
+    CONFIRMED_LABEL: {"color": "0e8a16", "description": "Human-confirmed review finding"},
+    INVALID_LABEL: {"color": "e99695", "description": "Human-rejected review finding"},
+}
+REVIEWER_SPECS = {
+    "architecture": ("icon4py-architecture-reviewer", "architecture.json"),
+    "correctness": ("icon4py-correctness-reviewer", "correctness.json"),
+    "performance": ("icon4py-performance-reviewer", "performance.json"),
+}
+SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2}
+FIXEDNESS_VALUES = {"fixed", "persists", "unknown", "not-detected"}
+REOPEN_WINDOW = timedelta(days=30)
+METADATA_BEGIN = "<!-- weekly-review:metadata"
+METADATA_END = "-->"
+TEXT_FINDING_FIELDS = (
+    "title",
+    "severity",
+    "confidence",
+    "description",
+    "evidence",
+    "file",
+    "symbol",
+    "suggested_fix",
+    "reviewer",
+)
 
 
-def log(msg: str) -> None:
-    LOGGER.info(msg)
+class ReviewError(RuntimeError):
+    """An explicitly surfaced pipeline failure."""
 
 
-def warn(msg: str) -> None:
-    LOGGER.warning(msg)
+@dataclass(frozen=True)
+class RunConfig:
+    checkout: Path
+    repo: str
+    severity: str
+    panel_size: int
+    reviewers: tuple[str, ...]
+    model_id: str
+    model_base_url: str
+    artifacts_dir: Path | None
+    automation_actor: str | None
 
 
-def zurich_now() -> datetime:
+@dataclass(frozen=True)
+class Workspace:
+    root: Path
+    pi_config: Path
+    findings: Path
+    reports: Path
+    review_config: Path
+    awf_config: Path
+
+
+def log(message: str) -> None:
+    LOGGER.info(message)
+
+
+def warn(message: str) -> None:
+    LOGGER.warning(message)
+
+
+def now() -> datetime:
     return datetime.now(TZ)
 
 
-def review_date() -> str:
-    return zurich_now().strftime("%Y-%m-%d")
+def find_or_raise(name: str) -> str:
+    path = shutil.which(name)
+    if not path:
+        raise ReviewError(f"Required executable not found: {name}")
+    return path
 
 
-def run_id() -> str:
-    return zurich_now().strftime("weekly-%G-W%V")
+def require_repo(repo: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        raise ReviewError(f"Invalid GitHub repository: {repo}")
 
 
-def load_json(path: Path, label: str) -> list:
+def require_endpoint(endpoint: str) -> None:
+    parsed = urllib.parse.urlparse(endpoint)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ReviewError(f"Invalid model endpoint: {endpoint}")
+
+
+def require_checkout(checkout: Path) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode or not result.stdout.strip():
+        raise ReviewError(f"Cannot resolve the icon4py checkout HEAD: {checkout}\n{result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def new_workspace(base: Path | None, checkout: Path) -> Workspace:
+    if base is None:
+        local_base = checkout / "_local"
+        local_base.mkdir(exist_ok=True)
+        base = Path(tempfile.mkdtemp(prefix="weekly-review-", dir=local_base))
+    else:
+        base.mkdir(parents=True, exist_ok=True)
+    root = base / now().strftime("%Y%m%d-%H%M%S")
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        warn(f"failed to parse {label} ({path}): {exc}")
-        return []
-    if not isinstance(data, list):
-        warn(f"{label} ({path}) must be a JSON list")
-        return []
-    return data
-
-
-def github_token() -> str | None:
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or None
-
-
-def github_repo(args_repo: str | None = None) -> str:
-    return os.environ.get("GITHUB_REPOSITORY") or args_repo or DEFAULT_REPO
-
-
-# ---------------------------------------------------------------------------
-# GitHub API client (stdlib only)
-# ---------------------------------------------------------------------------
+        root.mkdir()
+    except FileExistsError as exc:
+        raise ReviewError(f"Run workspace already exists: {root}") from exc
+    workspace = Workspace(
+        root=root,
+        pi_config=root / "pi-config",
+        findings=root / "findings",
+        reports=root / "reports",
+        review_config=root / "review.json",
+        awf_config=root / "awf.json",
+    )
+    for path in (workspace.pi_config, workspace.findings, workspace.reports):
+        path.mkdir()
+    log(f"Run workspace: {root}")
+    return workspace
 
 
 class GitHub:
-    def __init__(self, token: str | None, repo: str):
+    def __init__(self, token: str | None, repo: str, automation_actor: str | None = None):
         self.token = token
         self.repo = repo
+        self.automation_actor = automation_actor
         self.base = f"https://api.github.com/repos/{repo}"
 
     @property
-    def authed(self) -> bool:
+    def authenticated(self) -> bool:
         return self.token is not None
 
     def request(self, method: str, path: str, *, body: dict | None = None) -> dict | list | None:
-        url = path if path.startswith("https://") else f"{self.base}{path}"
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
+        url = path if path.startswith("https://") else self.base + path
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-        data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+            headers["Authorization"] = "Bearer " + self.token
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers=headers,
+            method=method,
+        )
         try:
-            with urllib.request.urlopen(req) as resp:
-                text = resp.read().decode()
+            with urllib.request.urlopen(req, timeout=GITHUB_TIMEOUT) as response:
+                text = response.read().decode()
                 return json.loads(text) if text else None
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")[:500]
-            raise RuntimeError(f"GitHub {method} {url} failed: {exc.code} {detail}") from exc
+            raise ReviewError(f"GitHub {method} {url}: HTTP {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise ReviewError(f"GitHub {method} {url}: {exc}") from exc
 
     def paginate(self, path: str, params: dict) -> list:
-        out: list = []
-        page = 1
-        while True:
-            query = dict(params, per_page=100, page=page)
-            batch = self.request("GET", f"{path}?{urllib.parse.urlencode(query)}")
+        output: list = []
+        for page in range(1, 1000):
+            query = urllib.parse.urlencode(dict(params, per_page=100, page=page))
+            batch = self.request("GET", f"{path}?{query}")
             if not batch:
                 break
-            out.extend(batch)
+            output.extend(batch)
             if len(batch) < 100:
                 break
-            page += 1
-        return out
+        return output
 
-    def bot_login(self) -> str | None:
-        if not self.authed:
+    def current_actor(self) -> str | None:
+        if self.automation_actor:
+            return self.automation_actor
+        if not self.authenticated:
             return None
         if os.environ.get("GITHUB_ACTIONS") == "true":
-            # The automatic GITHUB_TOKEN cannot call GET /user. Actions writes
-            # issue events with this actor identity.
+            # The automatic token is represented by this identity in issue events.
             return "github-actions[bot]"
-        me = self.request("GET", "https://api.github.com/user")
-        return me.get("login") if isinstance(me, dict) else None
+        user = self.request("GET", "https://api.github.com/user")
+        return user.get("login") if isinstance(user, dict) else None
 
-    # -- labels ------------------------------------------------------------
+    def check_publication_ready(self) -> None:
+        metadata = self.request("GET", f"https://api.github.com/repos/{self.repo}")
+        if metadata.get("has_issues") is not True:
+            raise ReviewError(f"Issues are disabled on {self.repo}; enable them before publishing")
+        self.ensure_labels()
 
-    def label_exists(self, name: str) -> bool:
-        try:
-            self.request("GET", f"/labels/{urllib.parse.quote(name)}")
-            return True
-        except RuntimeError as exc:
-            if "404" in str(exc):
-                return False
-            raise
-
-    def create_label(self, name: str, color: str, description: str) -> bool:
-        if self.label_exists(name):
-            return False
-        self.request("POST", "/labels", body={"name": name, "color": color, "description": description})
-        return True
-
-    def ensure_labels(self) -> list[str]:
-        created = []
+    def ensure_labels(self) -> None:
         for name, spec in LABELS.items():
-            if self.create_label(name, spec["color"], spec["description"]):
-                created.append(name)
-                log(f"created label {name}")
-        return created
+            try:
+                self.request("GET", f"/labels/{urllib.parse.quote(name)}")
+            except ReviewError as exc:
+                if "HTTP 404" not in str(exc):
+                    raise
+                self.request("POST", "/labels", body={"name": name, **spec})
+                log(f"Created label {name}")
 
-    # -- issues ------------------------------------------------------------
-
-    def list_review_issues(self) -> list[dict]:
+    def tracked_issues(self) -> list[dict]:
         return self.paginate("/issues", {"state": "all", "labels": MARKER_LABEL, "sort": "created"})
 
-    def issue_timeline(self, number: int) -> list:
+    def timeline(self, number: int) -> list:
         return self.paginate(f"/issues/{number}/timeline", {})
 
-    def create_issue(self, title: str, body: str, labels: list[str]) -> int:
-        issue = self.request("POST", "/issues", body={"title": title, "body": body, "labels": labels})
+    def create_issue(self, title: str, body: str) -> int:
+        issue = self.request(
+            "POST", "/issues", body={"title": title, "body": body, "labels": [MARKER_LABEL, NEEDS_TRIAGE_LABEL]}
+        )
         return issue["number"]
 
-    def add_comment(self, number: int, body: str) -> None:
+    def comment(self, number: int, body: str) -> None:
         self.request("POST", f"/issues/{number}/comments", body={"body": body})
 
-    def update_issue(self, number: int, **fields) -> None:
+    def update(self, number: int, **fields: object) -> None:
         self.request("PATCH", f"/issues/{number}", body=fields)
-
-    # -- workflow runs (diff baseline) ---------------------------------------
-
-    def previous_run_head_sha(self, exclude_run_id: str | None) -> str | None:
-        """Head commit of the last successful run of this workflow.
-
-        Best effort: no previous run, or an API error (e.g. unauthenticated),
-        means no baseline and the reviewers see the full checkout.
-        """
-        try:
-            return self._previous_run_head_sha(exclude_run_id)
-        except RuntimeError as exc:
-            warn(f"could not read workflow run history: {exc}")
-            return None
-
-    def _previous_run_head_sha(self, exclude_run_id: str | None) -> str | None:
-        data = self.request(
-            "GET",
-            f"https://api.github.com/repos/{self.repo}/actions/workflows/"
-            f"{WORKFLOW_FILENAME}/runs?status=success&per_page=10",
-        )
-        runs = data.get("workflow_runs", []) if isinstance(data, dict) else []
-        for run in runs:
-            if exclude_run_id and str(run.get("id")) == exclude_run_id:
-                continue
-            return run.get("head_sha")
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Issue body rendering and parsing
-# ---------------------------------------------------------------------------
-
-
-def commit_link(repo: str, sha: str) -> str:
-    return f"https://github.com/{repo}/commit/{sha}"
-
-
-def file_link(repo: str, sha: str, file: str, lines: list[int] | None) -> str:
-    url = f"https://github.com/{repo}/blob/{sha}/{file}"
-    if lines and len(lines) == 2 and lines[1] > lines[0]:
-        url += f"#L{lines[0]}-L{lines[1]}"
-    elif lines:
-        url += f"#L{lines[0]}"
-    return url
-
-
-def render_metadata(meta: dict) -> str:
-    lines = [METADATA_BEGIN]
-    for key, value in meta.items():
-        lines.append(f"{key}: {value}")
-    lines.append(METADATA_END)
-    return "\n".join(lines)
-
-
-def render_issue_body(
-    finding: dict,
-    *,
-    repo: str,
-    commit: str,
-    review_date_str: str,
-    run: str,
-) -> str:
-    meta = {
-        "file": finding["file"],
-        "lines": f"{finding['lines'][0]}-{finding['lines'][1]}"
-        if isinstance(finding.get("lines"), list) and len(finding["lines"]) == 2
-        else "",
-        "symbol": finding.get("symbol", ""),
-        "severity": finding.get("severity", ""),
-        "first_seen": review_date_str,
-        "last_seen": review_date_str,
-        "commit": commit,
-        "run_id": run,
-    }
-    tags = ", ".join(finding.get("tags") or [])
-    where = file_link(repo, commit, finding["file"], finding.get("lines"))
-    body_parts = [
-        render_metadata(meta),
-        "## Summary",
-        "",
-        finding["description"],
-        "",
-        "## Evidence",
-        "",
-        finding["evidence"],
-        "",
-        "## Suggested fix",
-        "",
-        finding["suggested_fix"],
-        "",
-        "## Details",
-        "",
-        f"- Found by: `{finding['reviewer']}` (skeptic panel: 3/3 PASS)",
-        f"- Location at detection: [{finding['file']} @ `{commit[:9]}`]({where})",
-        f"- Tags: {tags}",
-        f"- Run: `{run}`",
-        "",
-        "<sub>Filed automatically by the weekly review. Maintainers: add"
-        f" `{CONFIRMED_LABEL}` after checking, or `{INVALID_LABEL}` / close the issue if the"
-        " finding is wrong. Closed issues are not re-reported.</sub>",
-        "",
-    ]
-    return "\n".join(body_parts)
 
 
 def parse_section(body: str, heading: str) -> str:
-    marker = f"## {heading}\n"
-    start = body.find(marker)
-    if start == -1:
+    start = body.find(f"## {heading}\n")
+    if start < 0:
         return ""
-    start += len(marker)
-    nxt = body.find("\n## ", start)
-    return body[start:nxt].strip() if nxt != -1 else body[start:].strip()
+    start += len(heading) + 3
+    end = body.find("\n## ", start)
+    return body[start:end].strip() if end >= 0 else body[start:].strip()
 
 
-def parse_issue_body(issue: dict) -> dict:
-    """Extract the machine-readable fields an issue body must carry."""
+def parse_issue(issue: dict) -> dict:
     body = issue.get("body") or ""
-    meta: dict[str, str] = {}
-    begin = body.find(METADATA_BEGIN)
-    if begin != -1:
-        end = body.find(METADATA_END, begin)
-        if end != -1:
-            for line in body[begin + len(METADATA_BEGIN) : end].strip().splitlines():
+    metadata: dict[str, str] = {}
+    start = body.find(METADATA_BEGIN)
+    if start >= 0:
+        end = body.find(METADATA_END, start)
+        if end >= 0:
+            for line in body[start + len(METADATA_BEGIN) : end].strip().splitlines():
                 key, _, value = line.partition(":")
-                meta[key.strip()] = value.strip()
-    lines: list[int] = []
-    raw_lines = meta.get("lines", "")
-    if raw_lines:
-        for part in re.split(r"[-,]", raw_lines):
-            if part.strip().isdigit():
-                lines.append(int(part.strip()))
+                metadata[key.strip()] = value.strip()
+    line_numbers = [int(item) for item in re.findall(r"\d+", metadata.get("lines", ""))]
     return {
-        "file": meta.get("file", ""),
-        "lines": lines,
-        "symbol": meta.get("symbol", ""),
-        "commit": meta.get("commit", ""),
+        "number": issue["number"],
+        "title": issue["title"],
+        "file": metadata.get("file", ""),
+        "lines": line_numbers[:2],
+        "symbol": metadata.get("symbol", ""),
+        "commit": metadata.get("commit", ""),
         "description": parse_section(body, "Summary"),
         "suggested_fix": parse_section(body, "Suggested fix"),
+        "source_body": body,
     }
 
 
-# ---------------------------------------------------------------------------
-# Collecting the current issue state
-# ---------------------------------------------------------------------------
-
-
-def collect_open_issues(gh: GitHub) -> list[dict]:
-    """Collect tracked issues, including invalid ones for duplicate suppression.
-
-    Open issues and recently pipeline-closed issues are candidates for comments
-    and fixedness. Invalid issues only prevent equivalent findings from being
-    reported again. Open issues are always readable; the pipeline-closed state
-    requires a token to identify the bot in the timeline.
-    """
-    bot = gh.bot_login()
-    cutoff = zurich_now() - timedelta(days=REOPEN_WINDOW_DAYS)
-    entries: list[dict] = []
-    for issue in gh.list_review_issues():
+def collect_tracked_issues(github: GitHub) -> list[dict]:
+    actor = github.current_actor()
+    entries = []
+    for issue in github.tracked_issues():
         if "pull_request" in issue:
             continue
         labels = {label["name"] for label in issue.get("labels", [])}
-        state = issue.get("state")
         if INVALID_LABEL in labels:
-            entry_state = "invalid"
-        elif state == "open":
-            entry_state = "open"
+            state = "invalid"
+        elif issue.get("state") == "open":
+            state = "open"
         else:
-            if bot is None:
-                continue
-            close_events = [
+            closed_events = [
                 event
-                for event in gh.issue_timeline(issue["number"])
-                if isinstance(event, dict)
-                and event.get("event") == "closed"
-                and (event.get("actor") or {}).get("login") == bot
+                for event in github.timeline(issue["number"])
+                if isinstance(event, dict) and event.get("event") == "closed"
             ]
-            if not close_events:
+            if not closed_events:
                 continue
-            closed_at = close_events[-1].get("created_at")
+            latest = closed_events[-1]
+            if not actor:
+                warn(f"Skipping #{issue['number']}: automation actor is unavailable; use --automation-actor to identify it")
+                continue
+            if (latest.get("actor") or {}).get("login") != actor:
+                continue
             try:
-                closed_dt = datetime.fromisoformat(closed_at.replace("Z", "+00:00"))
-            except (AttributeError, ValueError):
+                closed_at = datetime.fromisoformat(latest["created_at"].replace("Z", "+00:00"))
+            except (KeyError, ValueError):
                 continue
-            if closed_dt < cutoff:
+            if now() - closed_at > REOPEN_WINDOW:
                 continue
-            entry_state = "pipeline-closed"
-        parsed = parse_issue_body(issue)
-        if entry_state == "open" and not parsed["file"]:
-            warn(f"issue #{issue['number']} has no location metadata; fixedness checks will be weak")
-        entries.append(
-            {
-                "number": issue["number"],
-                "title": issue["title"],
-                "state": entry_state,
-                **parsed,
-            }
-        )
+            state = "pipeline-closed"
+        entries.append({"state": state, **parse_issue(issue)})
     return entries
 
 
-# ---------------------------------------------------------------------------
-# Orchestrator output validation
-# ---------------------------------------------------------------------------
+def public_issue_entry(entry: dict) -> dict:
+    return {key: value for key, value in entry.items() if key != "source_body"}
 
 
-def validate_accepted(accepted: list) -> list[dict]:
-    valid: list[dict] = []
-    for finding in accepted:
-        if not isinstance(finding, dict):
-            warn("skipping non-dict accepted entry")
-            continue
-        missing = REQUIRED_FINDING_FIELDS - set(finding.keys())
-        if missing:
-            warn(f"skipping accepted entry missing fields: {sorted(missing)}")
-            continue
-        if finding.get("severity") not in {"high", "medium", "low"}:
-            warn(f"skipping accepted entry with bad severity: {finding.get('severity')!r}")
-            continue
-        valid.append(finding)
-    return valid
+def file_link(repo: str, commit: str, file: str, lines: list[int]) -> str:
+    url = f"https://github.com/{repo}/blob/{commit}/{file}"
+    if len(lines) == 2 and lines[1] > lines[0]:
+        return f"{url}#L{lines[0]}-L{lines[1]}"
+    return f"{url}#L{lines[0]}"
 
 
-def merge_fixedness_votes(fixedness: list) -> dict[int, str]:
-    """Merge checker votes into one verdict per issue; fixed requires 3/3."""
-    votes: dict[int, list[str]] = {}
-    for entry in fixedness:
-        if not isinstance(entry, dict):
+def format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "unknown"
+    whole_seconds = max(0, round(seconds))
+    hours, remainder = divmod(whole_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
+
+
+def render_issue_body(finding: dict, repo: str, commit: str, date: str, run_id: str, panel_size: int) -> str:
+    metadata = {
+        "file": finding["file"],
+        "lines": f"{finding['lines'][0]}-{finding['lines'][1]}",
+        "symbol": finding["symbol"],
+        "severity": finding["severity"],
+        "first_seen": date,
+        "last_seen": date,
+        "commit": commit,
+        "run_id": run_id,
+    }
+    lines = [METADATA_BEGIN]
+    lines.extend(f"{key}: {value}" for key, value in metadata.items())
+    lines.extend(
+        [
+            METADATA_END,
+            "## Summary",
+            "",
+            finding["description"],
+            "",
+            "## Evidence",
+            "",
+            finding["evidence"],
+            "",
+            "## Suggested fix",
+            "",
+            finding["suggested_fix"],
+            "",
+            "## Details",
+            "",
+            f"- Found by: `{finding['reviewer']}` (skeptic panel: {panel_size}/{panel_size} PASS)",
+            f"- Location at detection: [{finding['file']} @ `{commit[:9]}`]({file_link(repo, commit, finding['file'], finding['lines'])})",
+            f"- Tags: {', '.join(finding['tags'])}",
+            f"- Run: `{run_id}`",
+            "",
+            "<sub>Automatic weekly review. Add `ai-review:confirmed` to confirm the finding."
+            f" Add `{INVALID_LABEL}` to reject it and suppress equivalent future findings."
+            " Ordinary closure keeps this issue closed but does not suppress new findings.</sub>",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def update_last_seen(entry: dict, date: str, run_id: str) -> str:
+    body = entry["source_body"]
+    start = body.find(METADATA_BEGIN)
+    end = body.find(METADATA_END, start)
+    if start < 0 or end < start:
+        return body
+    metadata = body[start + len(METADATA_BEGIN) : end]
+    metadata = re.sub(r"(?m)^last_seen:.*$", f"last_seen: {date}", metadata)
+    if re.search(r"(?m)^run_id:", metadata):
+        metadata = re.sub(r"(?m)^run_id:.*$", f"run_id: {run_id}", metadata)
+    else:
+        metadata = metadata.rstrip() + f"\nrun_id: {run_id}\n"
+    return body[:start] + METADATA_BEGIN + metadata + body[end:]
+
+
+def prepare_normalized_finding(finding: object, severity: str) -> dict | None:
+    if not isinstance(finding, dict):
+        return None
+    normalized = dict(finding)
+    for field in ("description", "evidence", "suggested_fix"):
+        value = normalized.get(field)
+        if isinstance(value, list) and all(isinstance(item, str) and item.strip() for item in value):
+            warn(f"Normalizing list-valued {field} to a Markdown list")
+            normalized[field] = "\n".join(
+                item if item.startswith(("- ", "* ")) else f"- {item}"
+                for item in value
+            )
+    valid, _ = validate_finding(normalized, severity)
+    return normalized if valid else None
+
+
+def validate_finding(finding: object, severity: str) -> tuple[bool, str | None]:
+    if not isinstance(finding, dict):
+        return False, "not an object"
+    for key in TEXT_FINDING_FIELDS:
+        if not isinstance(finding.get(key), str) or not finding[key].strip():
+            return False, f"{key} must be a non-empty string"
+    if finding["severity"] not in SEVERITY_RANK or finding["confidence"] not in SEVERITY_RANK:
+        return False, "invalid severity or confidence"
+    if SEVERITY_RANK[finding["severity"]] < SEVERITY_RANK[severity]:
+        return False, f"below requested severity {severity}"
+    lines = finding.get("lines")
+    if (
+        not isinstance(lines, list)
+        or len(lines) != 2
+        or any(isinstance(value, bool) or not isinstance(value, int) or value < 1 for value in lines)
+    ):
+        return False, "lines must contain two positive integers"
+    if lines[0] > lines[1]:
+        return False, "line range is reversed"
+    source_path = Path(finding["file"])
+    if source_path.is_absolute() or ".." in source_path.parts:
+        return False, "file must be a path within the checkout"
+    if not isinstance(finding.get("tags"), list) or not all(isinstance(tag, str) and tag.strip() for tag in finding["tags"]):
+        return False, "tags must be a list of non-empty strings"
+    return True, None
+
+
+def validate_accepted(findings: object, severity: str) -> list[dict]:
+    if not isinstance(findings, list):
+        raise ReviewError("accepted.json must contain a JSON list")
+    accepted = []
+    for finding in findings:
+        normalized = prepare_normalized_finding(finding, severity)
+        if normalized is None:
+            warn("Skipping malformed accepted finding")
             continue
-        number = entry.get("number")
-        verdict = entry.get("verdict")
-        if not isinstance(number, int) or verdict not in FIXEDNESS_VERDICTS:
-            warn(f"skipping fixedness entry {entry!r}")
-            continue
-        votes.setdefault(number, []).append(verdict)
+        accepted.append(normalized)
+    return accepted
+
+
+def canonical_fixedness(
+    verdicts: object,
+    tracked: list[dict],
+    duplicate_ids: set[int] | None = None,
+    initial: list[dict] | None = None,
+    icon4py_commit: str | None = None,
+) -> dict[int, str]:
+    if not isinstance(verdicts, list):
+        raise ReviewError("fixedness.json must contain a JSON list")
+    if initial is None:
+        initial = tracked
+    duplicate_ids = duplicate_ids or set()
+    by_number = {entry["number"]: entry["state"] for entry in tracked}
+    eligible = {
+        entry["number"] for entry in initial if entry["state"] == "open"
+    } - duplicate_ids
     merged: dict[int, str] = {}
-    for number, issue_votes in votes.items():
-        if issue_votes.count("fixed") == 3:
-            merged[number] = "fixed"
-        elif issue_votes.count("persists") >= 2:
-            merged[number] = "persists"
-        else:
-            merged[number] = "unknown"
+    for verdict in verdicts:
+        if not isinstance(verdict, dict) or isinstance(verdict.get("number"), bool) or not isinstance(verdict.get("number"), int) or verdict.get("verdict") not in FIXEDNESS_VALUES:
+            raise ReviewError(f"Invalid fixedness entry: {verdict!r}")
+        number = verdict["number"]
+        if number in duplicate_ids:
+            continue
+        if number in merged:
+            raise ReviewError(f"Duplicate final fixedness verdict for issue {number}")
+        if number not in by_number:
+            raise ReviewError(f"Fixedness references a missing issue #{number}")
+        if by_number.get(number) != "open":
+            warn(f"Ignoring fixedness for a non-open issue #{number}: {by_number.get(number)}")
+            continue
+        if by_number.get(number) == "open" and verdict["verdict"] == "not-detected":
+            entry_commit = next(
+                (entry.get("commit", "") for entry in initial if entry["number"] == number),
+                None,
+            )
+            if entry_commit != icon4py_commit:
+                warn(f"Issue #{number}: not-detected for a different commit changed to unknown")
+                verdict = dict(verdict, verdict="unknown")
+        merged[number] = verdict["verdict"]
+    unexpected = merged.keys() - eligible
+    if unexpected:
+        raise ReviewError(f"Fixedness verdicts for ineligible issues: {sorted(unexpected)}")
+    missing = eligible - merged.keys()
+    if missing:
+        raise ReviewError(f"Missing fixedness verdicts for eligible open issues: {sorted(missing)}")
     return merged
 
 
-# ---------------------------------------------------------------------------
-# Reconciliation: apply orchestrator output to the GitHub tracker
-# ---------------------------------------------------------------------------
+def canonical_duplicates(duplicates: object, severity: str) -> list[dict]:
+    if not isinstance(duplicates, list):
+        raise ReviewError("duplicates.json must contain a JSON list")
+    valid = []
+    for duplicate in duplicates:
+        number = duplicate.get("duplicate_of") if isinstance(duplicate, dict) else None
+        if isinstance(number, bool) or not isinstance(number, int) or number < 1:
+            warn(f"Skipping duplicate with invalid issue number: {duplicate!r}")
+            continue
+        finding = duplicate.get("finding")
+        normalized = prepare_normalized_finding(finding, severity)
+        if normalized is None:
+            warn(f"Skipping duplicate #{number}: malformed finding")
+            continue
+        duplicate = dict(duplicate, finding=normalized)
+        confidence = duplicate.get("confidence")
+        if confidence not in {"high", "medium", "low"}:
+            warn(f"Skipping duplicate #{number}: invalid confidence {confidence!r}")
+            continue
+        if not isinstance(duplicate.get("reasoning"), str) or not duplicate["reasoning"].strip():
+            warn(f"Skipping duplicate #{number}: reasoning is required")
+            continue
+        valid.append(duplicate)
+    return valid
 
 
 def reconcile(
-    gh: GitHub,
-    *,
+    github: GitHub,
     accepted: list[dict],
-    duplicates: list,
-    fixedness: list,
-    collected: list[dict],
+    duplicates: list[dict],
+    fixedness: dict[int, str],
+    tracked: list[dict],
     repo: str,
     commit: str,
-    review_date_str: str,
-    run: str,
+    date: str,
+    run_id: str,
+    panel_size: int,
     publish: bool,
+    actions: list[dict] | None = None,
 ) -> list[dict]:
-    """Apply the review verdicts to the tracker. Returns an actions list for the report."""
-    actions: list[dict] = []
-    by_number = {entry["number"]: entry for entry in collected}
+    if actions is None:
+        actions = []
+    by_number = {entry["number"]: entry for entry in tracked}
+    if actions is None:
+        actions = []
 
-    def act(action: str, number: int | None, note: str, url: str | None = None) -> None:
+    def record(action: str, number: int | None, note: str, url: str | None = None) -> None:
         actions.append({"action": action, "number": number, "note": note, "url": url})
         log(f"  {action}" + (f" #{number}" if number else "") + f": {note}")
 
-    # 1. Duplicate merges: comment on (and maybe reopen) the existing issue.
-    for entry in duplicates:
-        if not isinstance(entry, dict):
+    for duplicate in duplicates:
+        target = duplicate["duplicate_of"]
+        entry = by_number.get(target)
+        if entry is None:
+            warn(f"Duplicate target missing from the current tracker: #{target}; skipping")
             continue
-        target = entry.get("duplicate_of")
-        finding = entry.get("finding") or {}
-        confidence = entry.get("confidence", "unknown")
-        if not isinstance(target, int) or target not in by_number:
-            warn(f"duplicate entry targets unknown issue {target!r}; skipping")
-            act("skipped", None, f"duplicate target {target!r} is not in the tracked set")
+        if entry["state"] == "invalid":
+            record("ignored", target, "matching finding is human-rejected")
             continue
-        existing = by_number[target]
-        if existing["state"] == "invalid":
-            act("ignored", target, "duplicate of a human-rejected issue")
-            continue
-        was_pipeline_closed = existing["state"] == "pipeline-closed"
-        title = finding.get("title", "")
+        if entry["state"] == "pipeline-closed":
+            if publish:
+                github.update(target, state="open", state_reason="reopened")
+            record("reopened", target, "re-detected by the review panel")
+            entry["state"] = "open"
         if publish:
-            if was_pipeline_closed:
-                gh.update_issue(target, state="open", state_reason="reopened")
-            commit_url = commit_link(repo, commit)
-            prefix = (
-                "Reopening: the review pipeline closed this issue earlier and the same problem"
-                if was_pipeline_closed
-                else "The weekly review re-detected this issue"
-            )
-            gh.add_comment(
+            github.update(target, body=update_last_seen(entry, date, run_id))
+            github.comment(
                 target,
-                f"{prefix} in run `{run}` at commit [`{commit[:9]}`]({commit_url}).\n\n"
-                f"**New finding:** {title}\n\n"
-                f"Panel: {confidence}-confidence duplicate match.",
+                f"Re-detected in run `{run_id}` at commit "
+                f"[`{commit[:9]}`](https://github.com/{repo}/commit/{commit}).\n\n"
+                f"**Finding:** {duplicate['finding']['title']}\n\n"
+                f"Panel: {duplicate.get('confidence', 'unspecified')}-confidence duplicate match.",
             )
-        act("reopened" if was_pipeline_closed else "commented", target, f"duplicate: {title}")
+        record("commented", target, f"duplicate: {duplicate['finding']['title']}")
 
-    # 2. Accepted findings: create new issues.
     for finding in accepted:
-        body = render_issue_body(finding, repo=repo, commit=commit, review_date_str=review_date_str, run=run)
         if publish:
-            number = gh.create_issue(
-                finding["title"],
-                body,
-                labels=[MARKER_LABEL, NEEDS_TRIAGE_LABEL],
-            )
-            url = f"https://github.com/{repo}/issues/{number}"
+            number = github.create_issue(finding["title"], render_issue_body(finding, repo, commit, date, run_id, panel_size))
+            record("created", number, finding["title"], f"https://github.com/{repo}/issues/{number}")
         else:
-            number, url = None, None
-        act("created", number, f"new issue: {finding['title']}", url)
+            record("new", None, finding["title"])
 
-    # 3. Fixedness verdicts on open issues.
-    verdicts = merge_fixedness_votes(fixedness)
-    for number, verdict in verdicts.items():
-        if number not in by_number:
-            warn(f"fixedness verdict for unknown issue #{number}; skipping")
-            continue
-        if by_number[number]["state"] != "open":
+    for number, verdict in fixedness.items():
+        if not publish:
+            record("fixedness", number, verdict)
             continue
         if verdict == "fixed":
-            if publish:
-                gh.add_comment(
-                    number,
-                    "The fixedness panel (3/3 votes) found this issue resolved at commit "
-                    f"[`{commit[:9]}`]({commit_link(repo, commit)}). Closing as completed.",
-                )
-                gh.update_issue(number, state="closed", state_reason="completed")
-            act("closed", number, "fixedness: fixed")
+            github.comment(
+                number,
+                f"The fixedness panel resolved this issue at commit "
+                f"[`{commit[:9]}`](https://github.com/{repo}/commit/{commit}). Closing as completed.",
+            )
+            github.update(number, state="closed", state_reason="completed")
+            record("closed", number, "fixed by panel reopening later if re-detected")
         elif verdict == "persists":
-            if publish:
-                gh.add_comment(
-                    number,
-                    "Fixedness check in run `" + run + "` at commit "
-                    f"[`{commit[:9]}`]({commit_link(repo, commit)}): the issue still persists "
-                    "(at least 2/3 panel votes).",
-                )
-            act("commented", number, "fixedness: persists")
+            github.comment(number, f"The fixedness panel finds this still present in run `{run_id}` at commit `{commit[:9]}`.")
+            record("commented", number, "fixedness: persists")
         else:
-            act("no-op", number, f"fixedness: {verdict} (no comment)")
+            record("no-op", number, f"fixedness: {verdict}")
 
     if not publish:
-        log("Dry run: no GitHub changes were made. Pass --publish to apply.")
+        log("Dry run: no GitHub changes were applied.")
     return actions
 
 
-# ---------------------------------------------------------------------------
-# Sandbox (bwrap) invocation
-# ---------------------------------------------------------------------------
+def read_json(path: Path) -> object:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError as exc:
+        raise ReviewError(f"Missing required output: {path}") from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReviewError(f"Cannot parse required output {path}: {exc}") from exc
 
 
-def build_sandbox_command(
-    *,
-    checkout: Path,
-    findings_dir: Path,
-    reports_dir: Path,
-    sessions_dir: Path,
-    prompt: str,
-) -> tuple[list[str], Path]:
-    """Build the bwrap command and a writable config to remove after the run."""
-    pi = shutil.which("pi")
-    if not pi:
-        raise RuntimeError("pi not found on PATH.")
+def overview_path(workspace: Workspace) -> Path:
 
-    # pi auto-installs packages into its config directory, which must therefore
-    # be writable and separate from scripts/data/weekly-review/.
-    tmp_config = Path(tempfile.mkdtemp(prefix="pi-config-"))
-    shutil.copytree(DATA_DIR, tmp_config, dirs_exist_ok=True)
-    (tmp_config / "sessions").mkdir(exist_ok=True)
 
-    cmd = [
-        "bwrap",
-        "--die-with-parent",
-        "--clearenv",
-        "--ro-bind", "/", "/",
-        "--tmpfs", "/tmp",
-        "--bind", str(tmp_config), "/tmp/pi-config",
-        "--bind", str(findings_dir), FINDINGS_MOUNT,
-        "--bind", str(reports_dir), REPORTS_MOUNT,
-        "--bind", str(sessions_dir), "/tmp/pi-config/sessions",
-    ]
-    # Read-only checkout; hide .git so no checkout credentials leak in.
-    cmd += ["--ro-bind", str(checkout), str(checkout)]
-    if (checkout / ".git").is_dir():
-        cmd += ["--tmpfs", str(checkout / ".git")]
-    cmd += [
-        "--proc", "/proc",
-        "--dev", "/dev",
-        "--share-net",  # pi needs the inference endpoint; egress is firewalled outside
-        "--setenv", "HOME", "/tmp",
-        "--setenv", "PI_CODING_AGENT_DIR", "/tmp/pi-config",
-        "--setenv", "PATH", os.environ.get("PATH", "/usr/bin:/bin"),
-        "--setenv", "TZ", os.environ.get("TZ", "Europe/Zurich"),
-        "--setenv", "CSCS_INFERENCE_API_KEY", os.environ.get("CSCS_INFERENCE_API_KEY", ""),
-        "--setenv", "ICON4PY_CHECKOUT", str(checkout),
-        "--setenv", "PI_SANDBOX_REPORTS_DIR", REPORTS_MOUNT,
-        "--setenv", "PI_SANDBOX_FINDINGS_DIR", FINDINGS_MOUNT,
-        "--chdir", "/tmp",
-        pi,
-        # pi text-print mode emits only the final assistant message. JSON mode
-        # emits events immediately, which the job log needs for long runs.
-        "-p", "--approve", "--mode", "json",
-        "--tools", SANDBOX_TOOLS,
-        "--skill", str(SKILL_PATH),
-        prompt,
-    ]
-    return cmd, tmp_config
+    reports = sorted(workspace.reports.glob("*.md"))
+    if len(reports) != 1:
+        raise ReviewError(f"Expected exactly one overview report in {workspace.reports}; found {len(reports)}")
+    return reports[0]
+def require_complete_review(config: RunConfig, workspace: Workspace) -> None:
+    for reviewer in config.reviewers:
+        filename = REVIEWER_SPECS[reviewer][1]
+        payload = read_json(workspace.findings / filename)
+        if not isinstance(payload, dict) or not isinstance(payload.get("findings"), list):
+            raise ReviewError(f"Incomplete review for {reviewer}: malformed {filename}")
+    report = overview_path(workspace).read_text(encoding="utf-8")
+    if "<!-- weekly-review:incomplete -->" in report:
+        raise ReviewError("The orchestrator marked this review as incomplete; no results published")
+    if "<!-- weekly-review:complete -->" not in report:
+        raise ReviewError("Overview report has no weekly-review completion marker")
+
+
+def configured_packages() -> list[str]:
+    with (DATA_DIR / "settings.json").open(encoding="utf-8") as handle:
+        settings = json.load(handle)
+    packages = settings.get("packages")
+    if not isinstance(packages, list) or not all(isinstance(package, str) and package for package in packages):
+        raise ReviewError("settings.json must declare packages as a list of non-empty strings")
+    return packages
+
+
+def prepare_pi_packages(workspace: Workspace) -> None:
+    shutil.copytree(DATA_DIR, workspace.pi_config, dirs_exist_ok=True)
+    (workspace.pi_config / "sessions").mkdir()
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"GITHUB_TOKEN", "GH_TOKEN", "OPENAI_API_KEY", "CSCS_INFERENCE_API_KEY"}
+    }
+    env["PI_CODING_AGENT_DIR"] = str(workspace.pi_config)
+    env["PI_TELEMETRY"] = "0"
+    pi = find_or_raise("pi")
+    log("Installing configured pi packages outside AWF...")
+    subprocess.run([pi, "update", "--extensions"], env=env, check=True, timeout=600)
+
+
+def review_configuration(
+    config: RunConfig,
+    commit: str,
+    workspace: Workspace,
+    review_date: str,
+    run_id: str,
+) -> dict:
+    return {
+        "checkout": str(config.checkout),
+        "commit": commit,
+        "review_date": review_date,
+        "run_id": run_id,
+        "severity": config.severity,
+        "panel_size": config.panel_size,
+        "model_id": config.model_id,
+        "pi_config_dir": str(workspace.pi_config),
+        "findings_dir": str(workspace.findings),
+        "reports_dir": str(workspace.reports),
+        "reviewers": [
+            {"name": REVIEWER_SPECS[name][0], "output_path": f"{workspace.findings}/{REVIEWER_SPECS[name][1]}"}
+            for name in config.reviewers
+        ],
+        "packages": configured_packages(),
+    }
+
+
+def short_value(value: object, limit: int = 240) -> str:
+    text = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def tool_call(name: str, arguments: object, *, prefix: str) -> str:
+    args = arguments if isinstance(arguments, dict) else {}
+    return f"{prefix}-> {name} {short_value(args)}"
+
+
+def result_text(result: object) -> str:
+    if isinstance(result, str):
+        return result
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        if "text" in result:
+            return result_text(result["text"])
+        if "content" in result:
+            return result_text(result["content"])
+        return json.dumps(result, ensure_ascii=True, separators=(",", ":"))
+    if isinstance(result, list):
+        for item in result:
+            text = result_text(item)
+            if text:
+                return text
+    return ""
+
+
+def tool_result_line(name: str, arguments: object, *, prefix: str) -> str:
+    result = arguments if isinstance(arguments, dict) else {}
+    duration = result.get("durationMs")
+    duration_text = f" ({duration} ms)" if isinstance(duration, (int, float)) and not isinstance(duration, bool) else ""
+    outcome = "failed" if result.get("isError") else "done"
+    detail = ""
+    if result.get("isError"):
+        detail = short_value(result_text(result["result"] if "result" in result else result.get("content")))
+        detail = f": {detail}" if detail else ""
+    return f"{prefix}-> {name}: {outcome}{duration_text}{detail}"
+
+def log_assistant_text(prefix: str, text: object) -> None:
+    for line in str(text).splitlines():
+        if line.strip():
+            log(prefix + line)
+
+def print_json_event(event: dict, prefix: str = "orchestrator: ") -> None:
+    event_type = event.get("type")
+    if event_type == "tool_execution_start":
+        log(tool_call(event.get("toolName", "unknown"), event.get("args"), prefix=prefix))
+    elif event_type == "tool_execution_end":
+        log(tool_result_line(event.get("toolName", "unknown"), event, prefix=prefix))
+    elif event_type == "message_end":
+        message = event.get("message") or {}
+        if message.get("role") != "assistant":
+            return
+        for content in message.get("content") or []:
+            if content.get("type") == "text" and content.get("text", "").strip():
+                log_assistant_text(prefix, content["text"])
+        if message.get("stopReason") == "error":
+            log_assistant_text(prefix + "model error: ", message.get("errorMessage", "unknown error"))
+
+
+def transcript_files(sessions_dir: Path, subagents: bool) -> list[Path]:
+    files = []
+    for directory, _, filenames in os.walk(sessions_dir):
+        for filename in filenames:
+            if filename.endswith(".jsonl"):
+                is_task = Path(directory).name == "tasks"
+                if is_task == subagents:
+                    files.append(Path(directory) / filename)
+    return sorted(files)
 
 
 class TranscriptWatcher:
-    """Follow subagent transcripts in sessions, including newly created files."""
-
-    def __init__(self, sessions_dir: Path) -> None:
+    def __init__(self, sessions_dir: Path):
         self.sessions_dir = sessions_dir
         self.stop_event = threading.Event()
         self.offsets: dict[Path, int] = {}
@@ -701,73 +792,63 @@ class TranscriptWatcher:
         self.thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self) -> None:
-        # Follow only new events and files created during this run.
-        for path in self.sessions_dir.glob("*/tasks/*.jsonl"):
-            self.offsets[path] = path.stat().st_size
+        self.offsets = {path: path.stat().st_size for path in transcript_files(self.sessions_dir, subagents=True)}
         self.thread.start()
 
     def stop(self) -> None:
         self.stop_event.set()
         self.thread.join()
-        self._read_new_events()
+        self._read_new_lines()
 
     def _run(self) -> None:
         while not self.stop_event.is_set():
-            self._read_new_events()
+            self._read_new_lines()
             self.stop_event.wait(1)
 
-    def _read_new_events(self) -> None:
-        for path in self.sessions_dir.glob("*/tasks/*.jsonl"):
-            size = path.stat().st_size
+    def _read_new_lines(self) -> None:
+        for path in transcript_files(self.sessions_dir, subagents=True):
+            if path.parent.name != "tasks" or not path.is_file():
+                continue
+            try:
+                size = path.stat().st_size
+            except FileNotFoundError:
+                continue
             offset = self.offsets.get(path, 0)
             if size <= offset:
                 continue
-            with path.open("r", encoding="utf-8") as handle:
+            with path.open(encoding="utf-8") as handle:
                 handle.seek(offset)
                 chunk = self.partial.get(path, "") + handle.read()
                 self.offsets[path] = handle.tell()
             lines = chunk.split("\n")
             self.partial[path] = lines.pop()
             for line in lines:
-                self._print_event(path, line)
+                self._print_line(path, line)
 
-    def _print_event(self, path: Path, line: str) -> None:
+    def _print_line(self, path: Path, line: str) -> None:
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
-            # Transcript headers are not JSON.
             return
         if not isinstance(event, dict) or event.get("type") != "message":
             return
-        # Task transcripts store completed message records. Their event schema
-        # differs from the JSON event stream emitted by `pi --mode json`.
-        name = path.stem.rsplit("_", 1)[-1][:8]
         message = event.get("message") or {}
-        role = message.get("role")
-        if role == "assistant":
+        identifier = path.stem.rsplit("_", 1)[-1][:8]
+        prefix = f"subagent {identifier}: "
+        if message.get("role") == "assistant":
             for content in message.get("content") or []:
                 if content.get("type") == "text" and content.get("text", "").strip():
-                    log(f"subagent {name}: {content['text'].rstrip()}")
+                    log_assistant_text(prefix, content["text"])
                 elif content.get("type") == "toolCall":
-                    log(f"subagent {name}: tool: {content.get('name', '?')}")
-        elif role == "toolResult":
-            outcome = "tool failed" if message.get("isError") else "tool completed"
-            log(f"subagent {name}: {outcome}: {message.get('toolName', '?')}")
+                    log(tool_call(content.get("name", "unknown"), content.get("arguments"), prefix=prefix))
+        elif message.get("role") == "toolResult":
+            log(tool_result_line(message.get("toolName", "unknown"), message, prefix=prefix))
 
 
-def stream_sandbox_progress(cmd: list[str], sessions_dir: Path) -> int:
-    """Run the sandbox and print events from the orchestrator and its subagents."""
+def process_events(process: subprocess.Popen, sessions_dir: Path) -> int:
     watcher = TranscriptWatcher(sessions_dir)
     watcher.start()
     try:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-            bufsize=1,
-        )
         assert process.stdout is not None
         for line in process.stdout:
             line = line.strip()
@@ -778,118 +859,65 @@ def stream_sandbox_progress(cmd: list[str], sessions_dir: Path) -> int:
             except json.JSONDecodeError:
                 log(line)
                 continue
-            if not isinstance(event, dict):
-                continue
-            event_type = event.get("type", "")
-            if event_type == "message_update":
-                inner = event.get("assistantMessageEvent") or {}
-                if inner.get("type") == "toolcall_start":
-                    log(f"  planning tool call: {inner.get('toolName', '?')}")
-            elif event_type == "tool_execution_start":
-                name = event.get("toolName", "?")
-                args = event.get("args") or {}
-                detail = ""
-                if isinstance(args, dict):
-                    detail = args.get("description") or args.get("summary") or ""
-                log(f"  starting {name}" + (f": {detail}" if detail else ""))
-            elif event_type == "tool_execution_error":
-                log(f"  tool failed: {event.get('error', event)}")
-            elif event_type == "message_end":
-                message = event.get("message") or {}
-                if message.get("role") == "assistant":
-                    for content in message.get("content") or []:
-                        if content.get("type") == "text" and content.get("text", "").strip():
-                            log(content["text"].rstrip())
-                    if message.get("stopReason") == "error":
-                        log(f"  model error: {message.get('errorMessage', '(no message)')}")
-            elif isinstance(event_type, str) and "subagent" in event_type:
-                detail = event.get("description") or event.get("agent_name") or event.get("agent_id") or ""
-                log(f"  {event_type}" + (f": {detail}" if detail else ""))
+            if isinstance(event, dict):
+                print_json_event(event)
         return process.wait()
     finally:
         watcher.stop()
 
-def netns_exec_prefix() -> list[str]:
-    """Command prefix that runs a command inside the firewalled namespace.
 
-    Namespace entry needs root; setpriv immediately drops back to the calling
-    user so the review session itself runs unprivileged.
-    """
-    return [
-        "sudo", "--preserve-env=CSCS_INFERENCE_API_KEY,PATH,TZ",
-        "ip", "netns", "exec", NETNS,
-        "setpriv",
-        f"--reuid={os.getuid()}", f"--regid={os.getgid()}", "--clear-groups",
-        "--",
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
-
-
-@cli.command(name="labels")
-def labels(
-    repo: Annotated[str | None, typer.Option(help="GitHub repository (default: $GITHUB_REPOSITORY, else msimberg/icon4py).")] = None,
-) -> None:
-    """Create the ai-review:* labels if missing."""
-    token = github_token()
-    if not token:
-        LOGGER.error("GITHUB_TOKEN (or GH_TOKEN) is required to create labels.")
-        raise typer.Exit(code=1)
-    target = github_repo(repo)
-    gh = GitHub(token, target)
-    created = gh.ensure_labels()
-    missing = [name for name in LABELS if name not in created]
-    log(f"Labels ensured on {target}. Created: {created or 'none'}; already existed: {missing or 'none'}.")
-
-
-@cli.command(name="run")
-def run(
-    checkout: Annotated[Path, typer.Option(help="Path to the icon4py checkout to review.")] = REPO_ROOT,
-    severity: Annotated[str, typer.Option(help="Minimum severity to report.")] = "high",
-    publish: Annotated[bool, typer.Option("--publish", help="Apply changes to the GitHub tracker. Without it, everything is a dry run.")] = False,
-    findings_dir: Annotated[Path | None, typer.Option(help="Override the temporary findings directory.")] = None,
-    reports_dir: Annotated[Path | None, typer.Option(help="Override the temporary reports directory.")] = None,
-    artifacts_dir: Annotated[Path | None, typer.Option(help="Directory for the report, findings, and session transcripts.")] = None,
-    netns: Annotated[bool, typer.Option("--netns", help="Run the review inside the netns firewall (requires 'netns_firewall.py setup' first).")] = False,
-    repo: Annotated[str | None, typer.Option(help="GitHub repository (default: $GITHUB_REPOSITORY, else msimberg/icon4py).")] = None,
-) -> None:
-    """Run the full review pipeline."""
-    _run(
-        checkout=checkout,
-        severity=severity,
-        publish=publish,
-        findings_dir=findings_dir,
-        reports_dir=reports_dir,
-        artifacts_dir=artifacts_dir,
-        netns=netns,
-        repo_arg=repo,
+def launch_awf(config: RunConfig, workspace: Workspace) -> int:
+    awf = shutil.which("awf") or os.environ.get("AWF_BIN")
+    if not awf:
+        raise ReviewError("awf is not installed. Set up AWF before running the review.")
+    awf_config = {
+        "network": {"allowDomains": []},
+        "apiProxy": {
+            "targets": {"openai": {"baseUrlEnv": "WEEKLY_REVIEW_OPENAI_BASE_URL"}},
+            "allowedModels": [f"openai/{config.model_id}"],
+            "modelCatalogue": {"enabled": False},
+            "maxTurns": 80,
+            "maxPermissionDenied": 5,
+        },
+        "rateLimiting": {"requestsPerMinute": 30, "requestsPerHour": 100},
+        "container": {"agentTimeout": 220},
+        "filesystem": {"allowWrite": [str(workspace.root)]},
+    }
+    workspace.awf_config.write_text(json.dumps(awf_config, indent=2), encoding="utf-8")
+    for path in (workspace.root / "audit", workspace.root / "proxy-logs"):
+        path.mkdir(exist_ok=True)
+    env = dict(os.environ)
+    env["WEEKLY_REVIEW_OPENAI_BASE_URL"] = config.model_base_url
+    log(f"Launching the review with AWF for model {config.model_id}")
+    process = subprocess.Popen(
+        [
+            awf,
+            "--config",
+            str(workspace.awf_config),
+            "--audit-dir",
+            str(workspace.root / "audit"),
+            "--proxy-logs-dir",
+            str(workspace.root / "proxy-logs"),
+            "--container-workdir",
+            str(workspace.root),
+            "--",
+            "/usr/bin/python3",
+            str(workspace.pi_config / "agent_entry.py"),
+            str(workspace.review_config),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+        env=env,
+        bufsize=1,
     )
+    return process_events(process, workspace.pi_config / "sessions")
 
 
-# ---------------------------------------------------------------------------
-# Session statistics
-# ---------------------------------------------------------------------------
-
-
-ROLE_MARKERS = {
-    "You are the orchestrator.": "orchestrator",
-    "You are a specialist reviewer for the C2SM/icon4py": "correctness-reviewer",
-    "You are a specialist performance reviewer": "performance-reviewer",
-    "You are a specialist architecture reviewer": "architecture-reviewer",
-    "Your job is to assess a proposed finding": "finding-skeptic",
-    "Your job is to decide whether an existing open issue is resolved": "fixedness-checker",
-}
-
-
-def session_statistics(path: Path, default_role: str = "unknown") -> dict:
-    """Summarize a persistent pi transcript; tokens include all model turns."""
-    usage_fields = ("input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens")
-    usage = {field: 0 for field in usage_fields}
-    timestamps: list[datetime] = []
-    role = default_role
+def session_statistics(path: Path, role: str) -> dict:
+    usage = {key: 0 for key in ("input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens")}
+    timestamps = []
     with path.open(encoding="utf-8") as handle:
         for line in handle:
             try:
@@ -899,266 +927,278 @@ def session_statistics(path: Path, default_role: str = "unknown") -> dict:
             if not isinstance(event, dict):
                 continue
             if isinstance(event.get("timestamp"), str):
-                try:
-                    timestamps.append(datetime.fromisoformat(event["timestamp"].replace("Z", "+00:00")))
-                except ValueError:
-                    pass
-
+                created = datetime.fromisoformat(event["timestamp"].replace("Z", "+00:00"))
+                timestamps.append(created)
             if event.get("type") != "message":
                 continue
             message = event.get("message") or {}
             if message.get("role") == "system" and role == "unknown":
                 preamble = (message.get("sections") or {}).get("preamble", "")
-                for marker, candidate in ROLE_MARKERS.items():
+                for marker, candidate in {
+                    "You are a specialist reviewer for the C2SM/icon4py": "correctness-reviewer",
+                    "You are a specialist performance reviewer": "performance-reviewer",
+                    "You are a specialist architecture reviewer": "architecture-reviewer",
+                    "Your job is to assess a proposed finding": "finding-skeptic",
+                    "Your job is to decide whether an existing open issue is resolved": "fixedness-checker",
+                }.items():
                     if marker in preamble:
                         role = candidate
                         break
-            message_usage = message.get("usage") or {}
-            for field in usage_fields:
-                value = message_usage.get(field)
-                if isinstance(value, (int, float)) and not isinstance(value, bool):
-                    usage[field] += value
+            for key, value in (message.get("usage") or {}).items():
+                if key in usage and isinstance(value, (int, float)) and not isinstance(value, bool):
+                    usage[key] += value
     elapsed = None
     if len(timestamps) >= 2:
-        elapsed = max(0, (max(timestamps) - min(timestamps)).total_seconds())
-    return {
-        "file": path.name,
-        "role": role,
-        "elapsed_seconds": elapsed,
-        "tokens": usage,
-    }
+        elapsed = (max(timestamps) - min(timestamps)).total_seconds()
+    return {"file": path.name, "role": role, "elapsed_seconds": elapsed, "tokens": usage}
 
 
-def collect_session_statistics(sessions_dir: Path, elapsed_seconds: float) -> dict:
-    """Aggregate orchestrator and all subagent sessions into report data."""
-    main_sessions = sorted(p for p in sessions_dir.glob("*.jsonl") if p.is_file())
-    subagent_sessions = sorted(p for p in sessions_dir.glob("*/tasks/*.jsonl") if p.is_file())
-    orchestrator = [session_statistics(path, default_role="orchestrator") for path in main_sessions]
-    subagents = [session_statistics(path) for path in subagent_sessions]
-    tokens = {
-        field: sum(session["tokens"][field] for session in orchestrator + subagents)
+def collect_statistics(workspace: Workspace, elapsed_seconds: float) -> dict:
+    sessions = workspace.pi_config / "sessions"
+    main = [session_statistics(path, "orchestrator") for path in transcript_files(sessions, subagents=False)]
+    subagents = [session_statistics(path, "unknown") for path in transcript_files(sessions, subagents=True)]
+    totals = {
+        field: sum(session["tokens"][field] for session in main + subagents)
         for field in ("input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens")
     }
     return {
         "elapsed_seconds": elapsed_seconds,
-        "tokens": tokens,
-        "orchestrator_sessions": orchestrator,
+        "tokens": totals,
+        "orchestrator_sessions": main,
         "subagent_sessions": subagents,
     }
 
 
-def format_duration(seconds: float | None) -> str:
-    if seconds is None:
-        return "unknown"
-    seconds = int(round(seconds))
-    hours, remainder = divmod(seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
-
-
-def render_statistics_markdown(stats: dict) -> str:
-    tokens = stats["tokens"]
-    lines = [
-        "",
-        "## Session statistics",
-        "",
-        f"- Elapsed time: **{format_duration(stats['elapsed_seconds'])}**",
-        f"- Main agent sessions: **{len(stats['orchestrator_sessions'])}**",
-        f"- Subagent sessions: **{len(stats['subagent_sessions'])}**",
-        f"- Tokens processed in all model turns: **{tokens['totalTokens']:,}**",
-        "",
-        "Token totals include input re-sent on each model turn; they are not unique context tokens.",
-        "",
-        "| Session | Elapsed | Input | Cached read | Output | Reasoning | Total tokens |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
+def append_report(workspace: Workspace, actions: list[dict], publish: bool, stats: dict, failure: str | None = None) -> None:
+    lines = ["", "## GitHub reconciliation", ""]
+    if failure:
+        lines.extend([f"**Run failed:** {failure}", ""])
+    if not publish:
+        lines.extend(["Dry run: planned actions only.", ""])
+    lines.extend(["| Action | Issue | Note |", "| --- | --- | --- |"])
+    for action in actions:
+        number = action["number"]
+        if number:
+            url = action["url"] or f"#{number}"
+            issue_cell = f"[#{number}]({url})" if action["url"] else f"#{number}"
+        else:
+            issue_cell = "-"
+        lines.append(f"| {action['action']} | {issue_cell} | {action['note']} |")
+    lines.extend(
+        [
+            "",
+            "## Session statistics",
+            "",
+            f"- Elapsed: **{format_duration(stats['elapsed_seconds'])}**",
+            f"- Main sessions: **{len(stats['orchestrator_sessions'])}**",
+            f"- Subagent sessions: **{len(stats['subagent_sessions'])}**",
+            f"- Tokens across all model turns: **{stats['tokens']['totalTokens']:,}**",
+            "",
+            "Total tokens include repeated input and cache reads, not unique context tokens.",
+            "",
+            "| Session | Elapsed | Input | Cached read | Output | Reasoning | Total tokens |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
     for item in stats["orchestrator_sessions"] + stats["subagent_sessions"]:
-        item_tokens = item["tokens"]
-        session_id = item["file"].rsplit("_", 1)[-1].removesuffix(".jsonl")[:8]
-        label = f"{item['role']} ({session_id})"
+        identifier = item["file"].rsplit("_", 1)[-1].removesuffix(".jsonl")[:8]
+        usage = item["tokens"]
         lines.append(
-            f"| {label} | {format_duration(item['elapsed_seconds'])} | "
-            f"{item_tokens['input']:,} | {item_tokens['cacheRead']:,} | "
-            f"{item_tokens['output']:,} | {item_tokens['reasoning']:,} | "
-            f"{item_tokens['totalTokens']:,} |"
+            f"| {item['role']} ({identifier}) | {format_duration(item['elapsed_seconds'])} | "
+            f"{usage['input']:,} | {usage['cacheRead']:,} | {usage['output']:,} | "
+            f"{usage['reasoning']:,} | {usage['totalTokens']:,} |"
         )
-    return "\n".join(lines) + "\n"
+    with overview_path(workspace).open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
 
 
-def _run(
-    *,
-    checkout: Path,
-    severity: str,
-    publish: bool,
-    findings_dir: Path | None,
-    reports_dir: Path | None,
-    artifacts_dir: Path | None,
-    netns: bool,
-    repo_arg: str | None,
-) -> None:
-    started_at = zurich_now()
-    repo = github_repo(repo_arg)
-    if repo == UPSTREAM_REPO and not publish:
-        log(f"Note: targeting {UPSTREAM_REPO} for a dry run; pass --repo to choose another repo.")
-    checkout = checkout.resolve()
-    if not (checkout / ".git").exists():
-        LOGGER.error(f"{checkout} is not a git checkout.")
-        raise typer.Exit(code=1)
-    commit = subprocess.run(
-        ["git", "-C", str(checkout), "rev-parse", "HEAD"],
-        check=True,
+def previous_run_commit(github: GitHub, branch: str | None) -> str | None:
+    if not branch:
+        warn("No branch identified; no diff baseline")
+        return None
+    runs = github.request(
+        "GET",
+        f"https://api.github.com/repos/{github.repo}/actions/workflows/{WORKFLOW_FILENAME}/runs"
+        f"?status=success&branch={urllib.parse.quote(branch, safe='')}&per_page=10",
+    )
+    for run in runs.get("workflow_runs", []) if isinstance(runs, dict) else []:
+        if str(run.get("id")) == os.environ.get("GITHUB_RUN_ID"):
+            continue
+        if run.get("head_branch") == branch:
+            return run.get("head_sha")
+    return None
+
+
+def write_diff(checkout: Path, baseline: str | None, commit: str, destination: Path) -> None:
+    if not baseline or baseline == commit:
+        log("No previous baseline to diff against.")
+        return
+    probe = subprocess.run(
+        ["git", "-C", str(checkout), "cat-file", "-e", f"{baseline}^{{commit}}"],
+        check=False,
         capture_output=True,
         text=True,
-    ).stdout.strip()
-    date_str = review_date()
-    run = run_id()
-    log(f"icon4py commit: {commit}")
-    log(f"review date: {date_str}  run id: {run}  repo: {repo}")
+    )
+    if probe.returncode:
+        warn(f"Baseline commit {baseline[:9]} is unavailable; using a full-checkout review")
+        return
+    diff = subprocess.run(
+        ["git", "-C", str(checkout), "diff", f"{baseline}..{commit}"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if diff.returncode:
+        raise ReviewError(f"Cannot compute review diff: {diff.stderr.strip()}")
+    destination.write_text(diff.stdout, encoding="utf-8")
 
-    token = github_token()
+
+def branch_name(checkout: Path) -> str | None:
+    if os.environ.get("GITHUB_REF_NAME"):
+        return os.environ["GITHUB_REF_NAME"]
+    result = subprocess.run(["git", "-C", str(checkout), "branch", "--show-current"], check=False, capture_output=True, text=True)
+    return result.stdout.strip() or None
+
+
+def run_pipeline(config: RunConfig, publish: bool) -> None:
+    started = now()
+    require_repo(config.repo)
+    require_endpoint(config.model_base_url)
+    if config.severity not in SEVERITY_RANK:
+        raise ReviewError(f"Invalid severity: {config.severity}")
+    if config.panel_size < 1:
+        raise ReviewError("Panel size must be a positive integer")
+    if not config.reviewers:
+        raise ReviewError("At least one reviewer is required")
+    if not config.model_id.strip():
+        raise ReviewError("Model id must not be empty")
+    commit = require_checkout(config.checkout)
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if publish and not token:
-        LOGGER.error("--publish requires GITHUB_TOKEN (or GH_TOKEN).")
-        raise typer.Exit(code=1)
-    gh = GitHub(token, repo)
-
+        raise ReviewError("Publishing requires GITHUB_TOKEN or GH_TOKEN")
+    github = GitHub(token, config.repo, config.automation_actor)
     if publish:
-        gh.ensure_labels()
-
-    log("Collecting existing review issues from GitHub...")
-    if not gh.authed:
-        log("No token: reading open issues anonymously; pipeline-closed tracking is unavailable.")
-    collected = collect_open_issues(gh)
-    if collected:
-        for entry in collected:
-            log(f"  #{entry['number']} [{entry['state']}] {entry['title']}")
+        github.check_publication_ready()
     else:
-        log("  no existing review issues found")
-    log(
-        f"Tracker state: {sum(e['state'] == 'open' for e in collected)} open, "
-        f"{sum(e['state'] == 'pipeline-closed' for e in collected)} pipeline-closed (recent), "
-        f"{sum(e['state'] == 'invalid' for e in collected)} invalid (duplicate suppression only)."
+        log("Dry run: reading the tracker but not publishing issues")
+
+    workspace = new_workspace(config.artifacts_dir, config.checkout)
+    log(f"Review commit {commit} on {config.repo}")
+    tracked = collect_tracked_issues(github)
+    for entry in tracked:
+        log(f"  #{entry['number']} [{entry['state']}] {entry['title']}")
+    (workspace.findings / "open-issues.json").write_text(
+        json.dumps([public_issue_entry(entry) for entry in tracked], indent=2), encoding="utf-8"
+    )
+    baseline = previous_run_commit(github, branch_name(config.checkout))
+    write_diff(config.checkout, baseline, commit, workspace.findings / "changes.diff")
+    review_date = started.strftime("%Y-%m-%d")
+    run_id = started.strftime("weekly-%G-W%V")
+    workspace.review_config.write_text(
+        json.dumps(review_configuration(config, commit, workspace, review_date, run_id), indent=2), encoding="utf-8"
     )
 
-    findings_path = findings_dir if findings_dir else Path(tempfile.mkdtemp(prefix="wr-findings-"))
-    reports_path = reports_dir if reports_dir else Path(tempfile.mkdtemp(prefix="wr-reports-"))
-    sessions_path = (artifacts_dir / "sessions") if artifacts_dir else Path(tempfile.mkdtemp(prefix="wr-sessions-"))
-    for path in (findings_path, reports_path, sessions_path):
-        path.mkdir(parents=True, exist_ok=True)
-
-    current_run_id = os.environ.get("GITHUB_RUN_ID")
-    prev_commit = gh.previous_run_head_sha(current_run_id)
-    if prev_commit and prev_commit != commit:
-        diff = subprocess.run(
-            ["git", "-C", str(checkout), "diff", f"{prev_commit}..{commit}"],
-            capture_output=True,
-            text=True,
-        )
-        if diff.returncode == 0:
-            (findings_path / "changes.diff").write_text(diff.stdout, encoding="utf-8")
-            log(f"Wrote changes.diff ({prev_commit[:9]}..{commit[:9]}), {len(diff.stdout.splitlines())} lines.")
-        else:
-            (findings_path / "changes.diff").write_text("", encoding="utf-8")
-            warn(f"git diff {prev_commit[:9]}..{commit[:9]} failed; wrote empty changes.diff.")
-    else:
-        log("No previous review run (or same commit); reviewers see no changes.diff.")
-
-    (findings_path / "open-issues.json").write_text(json.dumps(collected, indent=2), encoding="utf-8")
-
-    log("Running the sandboxed review session (this can take a long time)...")
-    prompt = (
-        "Run the weekly icon4py review. "
-        f"icon4py_checkout={checkout}. icon4py_commit={commit}. review_date={date_str}. "
-        f"run_id={run}. requested_severity={severity}. "
-        f"findings_dir={FINDINGS_MOUNT}. reports_dir={REPORTS_MOUNT}. "
-        "See the skill for the workflow."
-    )
-    sandbox_cmd, tmp_config = build_sandbox_command(
-        checkout=checkout,
-        findings_dir=findings_path,
-        reports_dir=reports_path,
-        sessions_dir=sessions_path,
-        prompt=prompt,
-    )
-    cmd = netns_exec_prefix() + sandbox_cmd if netns else sandbox_cmd
-    if netns:
-        log(f"Running inside the netns firewall (allowed egress: {', '.join(EGRESS_HOSTS)}).")
+    failure = None
+    actions = []
     try:
-        returncode = stream_sandbox_progress(cmd, sessions_path)
-    finally:
-        shutil.rmtree(tmp_config, ignore_errors=True)
-    if returncode != 0:
-        raise RuntimeError(f"review session failed with exit code {returncode}")
+        prepare_pi_packages(workspace)
+        return_code = launch_awf(config, workspace)
+        if return_code:
+            raise ReviewError(f"The AWF review failed with exit code {return_code}")
 
-    report_candidates = sorted(reports_path.glob("*.md"))
-    if not report_candidates:
-        LOGGER.error("The review session wrote no overview report.")
-        raise typer.Exit(code=1)
-    report_path = report_candidates[-1]
-    accepted = validate_accepted(load_json(findings_path / "accepted.json", "accepted.json"))
-    duplicates = load_json(findings_path / "duplicates.json", "duplicates.json")
-    fixedness = load_json(findings_path / "fixedness.json", "fixedness.json")
-    log(
-        f"Session output: {len(accepted)} accepted, {len(duplicates)} duplicates, "
-        f"{len(fixedness)} fixedness votes."
-    )
+        overview_path(workspace)
+        require_complete_review(config, workspace)
+        accepted = validate_accepted(read_json(workspace.findings / "accepted.json"), config.severity)
+        duplicates = canonical_duplicates(read_json(workspace.findings / "duplicates.json"), config.severity)
+        raw_fixedness = read_json(workspace.findings / "fixedness.json")
 
-    log("Reconciling with the GitHub tracker...")
-    actions = reconcile(
-        gh,
-        accepted=accepted,
-        duplicates=duplicates,
-        fixedness=fixedness,
-        collected=collected,
-        repo=repo,
-        commit=commit,
-        review_date_str=date_str,
-        run=run,
-        publish=publish,
-    )
-
-    if actions:
-        lines = ["", "## GitHub reconciliation", ""]
-        if not publish:
-            lines.append("Dry run: none of the actions below were applied.")
-            lines.append("")
-        lines.append("| Action | Issue | Note |")
-        lines.append("| --- | --- | --- |")
-        for item in actions:
-            issue = (
-                f"[#{item['number']}]({item['url'] or f'https://github.com/{repo}/issues/{item["number"]}'})"
-                if item["number"]
-                else "-"
-            )
-            lines.append(f"| {item['action']} | {issue} | {item['note']} |")
-        with report_path.open("a", encoding="utf-8") as handle:
-            handle.write("\n".join(lines) + "\n")
-
-    stats = collect_session_statistics(
-        sessions_path,
-        (zurich_now() - started_at).total_seconds(),
-    )
-    with report_path.open("a", encoding="utf-8") as handle:
-        handle.write(render_statistics_markdown(stats))
-    log(
-        f"Review took {format_duration(stats['elapsed_seconds'])}; "
-        f"processed {stats['tokens']['totalTokens']:,} tokens across "
-        f"{len(stats['subagent_sessions'])} subagent sessions."
-    )
-
-    # 7. Artifacts: report, findings, and session transcripts.
-    if artifacts_dir:
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-        (artifacts_dir / "statistics.json").write_text(
-            json.dumps(stats, indent=2) + "\n", encoding="utf-8"
+        # Re-evaluate the tracker immediately before applying results, while
+        # making no claims of atomicity with the panel's reasoning.
+        latest = collect_tracked_issues(github)
+        fixedness = canonical_fixedness(
+            raw_fixedness,
+            latest,
+            duplicate_ids={duplicate["duplicate_of"] for duplicate in duplicates},
+            initial=tracked,
+            icon4py_commit=commit,
         )
-        shutil.copy2(report_path, artifacts_dir / report_path.name)
-        for name in ("accepted.json", "duplicates.json", "fixedness.json", "open-issues.json", "changes.diff"):
-            source = findings_path / name
-            if source.exists():
-                shutil.copy2(source, artifacts_dir / name)
-        log(f"Artifacts written to {artifacts_dir}.")
+        log("Reconciling with the issue tracker...")
+        actions = reconcile(
+            github,
+            accepted,
+            duplicates,
+            fixedness,
+            latest,
+            config.repo,
+            commit,
+            review_date,
+            run_id,
+            config.panel_size,
+            publish,
+            actions=actions,
+        )
+    except Exception as exc:
+        failure = str(exc)
+        raise
+    finally:
+        stats = collect_statistics(workspace, (now() - started).total_seconds())
+        if len(list(workspace.reports.glob("*.md"))) == 1:
+            append_report(workspace, actions, publish, stats, failure)
+        (workspace.root / "statistics.json").write_text(
+            json.dumps(stats, indent=2), encoding="utf-8"
+        )
 
-    log("Done.")
+    log(f"Review finished. Report: {overview_path(workspace)}")
+
+
+@cli.command(name="labels")
+def labels(
+    repo: Annotated[str, typer.Option(help="Repository as owner/name")],
+) -> None:
+    """Create missing ai-review labels."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        raise typer.BadParameter("GITHUB_TOKEN or GH_TOKEN is required")
+    GitHub(token, repo).ensure_labels()
+
+
+@cli.command(name="run")
+def run(
+    checkout: Annotated[Path, typer.Option(help="icon4py checkout to review")],
+    repo: Annotated[str, typer.Option(help="Repository as owner/name")],
+    severity: Annotated[str, typer.Option(help="Minimum severity: high, medium, or low")],
+    panel_size: Annotated[int, typer.Option(help="Number of votes per finding")],
+    reviewer: Annotated[list[str], typer.Option(
+        "--reviewer",
+        help="Reviewer to enable: architecture, correctness, or performance. Repeat the option.",
+    )],
+    model_id: Annotated[str, typer.Option(help="Model id, for example zai-org/GLM-5.3-Flash")],
+    model_base_url: Annotated[str, typer.Option(help="Upstream OpenAI-compatible API base URL")],
+    artifacts_dir: Annotated[Path | None, typer.Option(help="Parent for a fresh artifact workspace")] = None,
+    automation_actor: Annotated[str | None, typer.Option("--automation-actor", help="Actor allowed to have pipeline-closed issues reopened; default: current token identity")] = None,
+    publish: Annotated[bool, typer.Option("--publish", help="Create and update GitHub issues")]= False,
+) -> None:
+    """Run a review with explicit configuration."""
+    unknown = set(reviewer) - REVIEWER_SPECS.keys()
+    if unknown:
+        raise typer.BadParameter(f"Unknown reviewers: {', '.join(sorted(unknown))}")
+    config = RunConfig(
+        checkout=checkout.resolve(),
+        repo=repo,
+        severity=severity,
+        panel_size=panel_size,
+        reviewers=tuple(dict.fromkeys(reviewer)),
+        model_id=model_id,
+        model_base_url=model_base_url,
+        artifacts_dir=artifacts_dir.resolve() if artifacts_dir else None,
+        automation_actor=automation_actor,
+    )
+    try:
+        run_pipeline(config, publish)
+    except ReviewError as exc:
+        LOGGER.error(str(exc))
+        raise typer.Exit(code=1) from exc
 
 
 if __name__ == "__main__":

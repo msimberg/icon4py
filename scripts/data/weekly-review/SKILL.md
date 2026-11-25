@@ -1,191 +1,183 @@
 ---
 name: weekly-review
-description: "Run the weekly automated review of C2SM/icon4py and write accepted findings and a fixedness assessment."
+description: Review C2SM/icon4py through reviewers, skeptic panels, and fixedness checks.
 ---
 
 # Weekly icon4py review
 
-You are the orchestrator. Spawn read-only subagents to review the code and
-verify findings, then write three JSON files to the findings directory and one
-overview report to the reports directory.
+You orchestrate the review. Read-only subagents inspect the checkout. You write
+findings and one report in the supplied directories; you never write GitHub
+issues directly.
 
-## What your task prompt provides
+Task inputs:
 
-- `icon4py_checkout`: absolute path to the icon4py clone (read-only).
-- `icon4py_commit`: the commit being reviewed.
-- `review_date`: `YYYY-MM-DD` (report filename, finding metadata).
-- `run_id`: the run identifier (report metadata).
-- `requested_severity`: tell reviewers to report only this severity.
-- `findings_dir`: writable directory for your JSON outputs.
-- `reports_dir`: writable directory for the overview report.
+- `icon4py_checkout`: read-only repository path
+- `icon4py_commit`: full commit SHA under review
+- `review_date`: YYYY-MM-DD
+- `run_id`: identifier for this run
+- `requested_severity`: minimum severity to report
+- `panel_size`: number of votes per finding
+- `reviewers`: reviewers to run and each reviewer's output path
+- `findings_dir`: writable findings directory
+- `reports_dir`: writable report directory
 
-Pass these values to each subagent in its task prompt.
+Current tracked issues are `<findings_dir>/open-issues.json`. Every entry has a
+GitHub issue `number`, title, location, description, suggested fix, and state:
 
-Tracked issues are in `<findings_dir>/open-issues.json`, a flat list with one
-entry each. `state` is `open`, `pipeline-closed`, or `invalid`. Treat
-For example:
+- `open`: eligible for duplicate comments and fixedness checks.
+- `pipeline-closed`: closed by the automation actor within the last 30 days.
+  A duplicate match can reopen it.
+- `invalid`: human-rejected. Suppress matching findings and take no action on
+  this original issue.
 
-```json
-[{"number": 123, "state": "open", "title": "...", "file": "<relative>", "commit": "...", "description": "...", "suggested_fix": "...", "lines": [s, e], "symbol": "..."}]
-```
-
-A `pipeline-closed` issue was closed by the pipeline. A match means the
-problem came back.
-`pipeline-closed` entries like open ones for duplicate detection. Entries with
-`state` `invalid` were human-rejected: suppress any matching finding. Do not
-comment on, close, reopen, or run fixedness checks for invalid entries.
+`changes.diff`, when present, is code changed since the previous review on this
+branch. If the file is absent, inspect the full checkout.
 
 ## Thresholds
 
-- Acceptance: a finding becomes a **new** issue only if all three skeptics vote
-  `PASS`. A valid finding that matches an existing tracked issue is merged into
-  that issue instead. Any `UNCERTAIN` vote prevents a new issue from being created.
-- Fixedness: an existing open issue is marked `fixed` only if all three of
-  the three fixedness checkers vote `fixed`. Otherwise the verdict is the
-  majority of the three votes, or `unknown` if there is no majority, and the
-  issue stays open.
+Let `N = panel_size`.
 
-## Step 1: Run the reviewers
+- A new issue requires all `N` skeptic votes to be `PASS`.
+- A valid finding that matches an existing tracked issue is a duplicate, not a
+  new issue. `invalid` matches are suppressed without touching the original.
+- A fixedness verdict is `fixed` only when all `N` checkers vote `fixed`.
+- `persists` requires a strict majority (more than half) of `persists` votes.
+  Everything else is `unknown`, including missing or malformed votes. Only
+  `fixed` closes an issue.
 
-Run all reviewers and collect all findings before continuing:
+## 1. Review
 
-- `icon4py-architecture-reviewer`, output `<findings_dir>/architecture.json`
-- `icon4py-correctness-reviewer`, output `<findings_dir>/correctness.json`
-- `icon4py-performance-reviewer`, output `<findings_dir>/performance.json`
+Run every reviewer in `reviewers` with its assigned agent name and output path.
+Read the tracked issues first so already tracked findings are not reported again.
+Human-rejected findings in `open-issues.json` must also be excluded.
 
-Each task prompt gives `icon4py_checkout`, `requested_severity`, `output_path`,
-and `findings_dir`. Pass `findings_dir` so reviewers can read `open-issues.json`
-(already-tracked issues to avoid re-reporting) and `changes.diff` (code changed
-since the last review) from there.
-
-If a reviewer fails or its output is missing or malformed, record the failure
-in the overview report and treat that reviewer's findings as empty. Continue.
-
-## Step 2: Verify findings with the skeptic panel
-
-Combine all findings. For each finding, run three `icon4py-finding-skeptic`
-subagents. Each task prompt gives:
-- `icon4py_checkout`
-- the full `finding` object
-- `open_issues`: the list from `<findings_dir>/open-issues.json`
-- `output_path` under `<findings_dir>/votes/<index>/1.json`, `2.json`, `3.json`
-  (`<index>` is the finding's position in the combined list, starting at 1)
-
-Each skeptic returns `verdict` in `PASS|REJECT|DUPLICATE|UNCERTAIN` and,
-for `DUPLICATE`, a `duplicate_of` issue number.
-
-A missing or malformed vote counts as `UNCERTAIN`.
-
-Classify each finding based on the three verdicts, in this order:
-
-- **Rejected**: any verdict is `REJECT`. Record in the report; do not create an issue.
-- **New issue** (`accepted.json`): all three verdicts are `PASS`.
-- **Duplicate merge** (`duplicates.json`): at least one verdict is `DUPLICATE`
-  and the others are `PASS`. All `DUPLICATE` votes must name the same
-  `duplicate_of` issue number; split targets are uncertain, not a merge.
-  `confidence` is `high` for 3x `DUPLICATE`, `medium` for 2x, `low` for 1x
-  `DUPLICATE` with the other two `PASS`.
-- **Uncertain/ambiguous**: anything else (e.g., `UNCERTAIN`, split `DUPLICATE`
-  targets, or `PASS` mixed with `UNCERTAIN`). Record these in the report but do
-  not create an issue.
-
-Record missing or malformed votes and the classification of each finding in
-the overview report.
-
-## Step 3: Write accepted.json and duplicates.json
-
-### 3.1 accepted.json
-
-Write truly new findings to `<findings_dir>/accepted.json` as a flat JSON list.
-Each entry is the reviewer's raw finding object (title, severity, description,
-evidence, file, lines, symbol, suggested_fix) enriched by the orchestrator with
-`reviewer` (the reviewer name), `confidence` (`high`, from all-3-PASS), and
-`tags` (derived from the title and defect type; format below).
-Skip a malformed entry with a note in the overview report rather than aborting.
-
-`tags` is a list of 3-6 short kebab-case keywords that help someone scan the
-tracker for related issues. Do not include the reviewer name, the date, or any
-string longer than a short phrase.
-
-### 3.2 duplicates.json
-
-Write findings that match an existing tracked issue to
-`<findings_dir>/duplicates.json` as a flat list:
+A reviewer's findings file is valid only if it has this structure:
 
 ```json
-[
-  {
-    "finding": {... accepted finding object ...},
-    "duplicate_of": 123,
-    "confidence": "high|medium|low",
-    "reasoning": "..."
-  }
-]
+{
+  "reviewer": "<assigned name>",
+  "findings": [
+    {
+      "title": "Short title",
+      "severity": "high|medium|low",
+      "description": "Inline Markdown, no headings",
+      "evidence": "Inline Markdown, no headings",
+      "file": "relative/path/from/icon4py_checkout.py",
+      "lines": [100, 120],
+      "symbol": "Exact relevant symbol",
+      "suggested_fix": "Inline Markdown, no headings"
+    }
+  ]
+}
 ```
 
-`duplicate_of` is the issue **number** from `open-issues.json`. `confidence`
-follows the duplicate-merge classification above: `high` for 3x `DUPLICATE`,
-`medium` for 2x, `low` for 1x `DUPLICATE` with the others `PASS`.
-Any other case is not a duplicate merge; record it as uncertain in the report.
+If a reviewer fails or writes malformed results, mark the review
+`incomplete`, record the failed stage in the overview report, and do not use
+that review as a diff baseline. Do not silently turn a failed reviewer into
+an empty successful result. The host validates the result files and the
+completion marker before publication.
 
-## Step 4: Assess fixedness of existing open issues
+## 2. Skeptic panels
 
-Let `accepted_findings` be the list in `accepted.json`. Let
-`duplicate_matched_numbers` be the set of `duplicate_of` values in
-`duplicates.json`.
+Combine the candidates. Check for duplicates against existing issues and
+against other candidates from this run before accepting anything. When two
+candidates describe the same root problem, keep one coherent finding and
+concentrate its evidence. Record the consolidation in the report.
 
-For each entry in `open-issues.json` whose state is NOT `invalid` AND whose
-number is NOT in `duplicate_matched_numbers` AND that has no accepted finding
-describing the same problem:
+For each remaining candidate at position `i`, starting from 1, spawn `N`
+`icon4py-finding-skeptic` agents. Give them:
 
-- If the entry's `commit` equals `icon4py_commit` (the reviewers saw the
-  same code and did not reproduce it), write
-  `{"number": 123, "verdict": "not-detected"}` directly. Do not spawn a panel.
-- If the commit changed, run three `icon4py-fixedness-checker` subagents
-  against `<icon4py_checkout>/<entry.file>`. Each task prompt gives
-  `icon4py_checkout`, the issue (number, title, description, file, lines,
-  symbol, suggested_fix), and an `output_path` under
-  `<findings_dir>/fixedness/<number>/1.json`, `2.json`, `3.json`.
+- `icon4py_checkout`
+- the full finding
+- `open_issues`: entries from `open-issues.json`
+- an output path `<findings_dir>/votes/<i>/<j>.json` for `j` from 1 to `N`
 
-  **Merge the three verdicts into exactly one entry per issue.** Apply this
-  fixedness threshold:
-  - `fixed`: all three votes are `fixed`.
-  - `persists`: at least two of the three votes are `persists`.
-  - `unknown`: no majority (e.g., one vote each, or two `unknown`).
-  A missing or malformed vote counts as `unknown`.
+Each skeptic returns `verdict` in `PASS|REJECT|DUPLICATE|UNCERTAIN`. For
+`DUPLICATE`, it returns the existing issue `number` in `duplicate_of`.
+Missing or malformed votes count as `UNCERTAIN`.
 
-Write `<findings_dir>/fixedness.json` as a flat list with **exactly one entry
-per unmatched open issue**:
+Classify candidates in this order:
+
+1. **Rejected:** any vote is `REJECT`. Do not create an issue.
+2. **New issue:** every vote is `PASS`. Include it in `accepted.json`.
+3. **Duplicate:** the other votes are `PASS` and at least one vote is
+   `DUPLICATE`. All duplicate votes must name the same issue number. Include
+   the finding in `duplicates.json`.
+4. **Uncertain:** everything else, including mixed verdict types, split
+   duplicate targets, or missing votes. Do not create an issue.
+
+For duplicate entries, use `confidence` `high` if all `N` votes are `DUPLICATE`,
+`medium` if at least two but fewer than `N` are `DUPLICATE`, and `low` if one
+is `DUPLICATE`. Include consolidated skeptic reasoning in the report.
+
+`accepted.json` is a flat list. Each entry contains the reviewer fields listed
+above plus `reviewer`, `confidence` (`high` for a full `PASS` panel), and
+`tags`. Tags are 3-6 short kebab-case keywords about the problem.
+
+`duplicates.json` is a flat list with entries of this form:
+
+```json
+{
+  "finding": {"title": "...", "file": "...", "lines": [1, 2]},
+  "duplicate_of": 123,
+  "confidence": "high|medium|low",
+  "reasoning": "..."
+}
+```
+
+## 3. Fixedness of open issues
+
+Only entries with `state == "open"` are eligible. Skip `pipeline-closed` and
+`invalid` entries, entries matched by a duplicate finding, and entries whose
+problem was accepted as a new finding.
+
+For an eligible entry whose stored `commit` equals `icon4py_commit`, write one
+entry `{"number": <number>, "verdict": "not-detected"}` without starting a
+panel.
+
+For every other eligible entry at issue number `number`, spawn `N`
+`icon4py-fixedness-checker` agents. Give them the checkout, the issue fields,
+and output path `<findings_dir>/fixedness/<number>/<j>.json` for `j` from 1 to
+`N`.
+
+Each checker votes `fixed`, `persists`, or `unknown`. Merge these votes into
+exactly one final result per eligible issue:
+
+- all `N` votes `fixed` -> `fixed`
+- a strict majority of votes `persists` -> `persists`
+- all other outcomes -> `unknown`
+
+Missing or malformed checker votes count as `unknown`.
+
+Write `fixedness.json` as exactly one entry per eligible open issue:
 
 ```json
 [{"number": 123, "verdict": "fixed|persists|unknown|not-detected"}]
 ```
 
-Do not write one entry per checker vote. If an issue has three checker
-verdicts, they must be merged into a single entry before writing the file.
+The file must contain only these final merged verdicts, not individual checker
+votes. The host validates this contract and applies it directly.
 
-A missing entry for an unmatched open issue leaves it open with a warning.
-`unknown` means the panel could not decide (possibly stale) and leaves the
-issue open.
+## 4. Overview report
 
-## Step 5: Write the overview report
+The report must contain exactly one completion marker:
+`<!-- weekly-review:complete -->` when all assigned reviewers produced valid
+result files, otherwise `<!-- weekly-review:incomplete -->`. The host rejects
+an incomplete review and does not use it as a later diff baseline.
 
-Write the overview document to `<reports_dir>/<review_date>-<HHMM>.md`
-(e.g. `2026-08-05-2114.md`) so same-day runs do not conflict.
+Write exactly one report to `<reports_dir>/<review_date>-<HHMM>.md`.
 
-The body includes:
+Include:
 
-- Run metadata: date, run id, icon4py commit.
-- Summary counts: total findings reviewed, findings submitted to the panel,
-  new accepted findings, merged duplicates, rejected findings, uncertain
-  findings, and the fixedness outcome for existing open issues.
-- A table of new accepted findings with title, severity, confidence, and file
-- A table of new accepted findings with title, severity, confidence, and file
-  (relative path and line range). The host turns these into GitHub permalinks.
-  Do not write URLs yourself.
-- A table of merged duplicates: new finding title, existing issue number, and
-  confidence.
-- A table of rejected findings with title, the skeptic verdicts, and the file.
-- A table of uncertain/ambiguous findings with title, verdicts, and note.
-- A table of fixedness outcomes: issue number, verdict, and a note.
-- Notes on any reviewer, skeptic, or fixedness failures.
+- Date, run id, and icon4py commit
+- Counts for candidates, accepted findings, duplicates, rejected and uncertain
+  candidates, and fixedness outcomes
+- Accepted finding titles, severity, confidence, reviewer, file, and lines
+- Duplicate findings with their target issue number and reasoning
+- Rejected findings and their votes
+- Uncertain findings with a note explaining the uncertainty
+- Fixedness outcomes for eligible open issues
+- Reviewer, checker, or parser failures
+
+Do not create GitHub URLs manually. The host converts repository-relative
+locations to commit-pinned links and records all publication actions separately.

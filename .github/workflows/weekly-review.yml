@@ -2,9 +2,8 @@ name: Weekly icon4py review
 
 on:
   schedule:
-    # Sunday at 22:00 Europe/Zurich
-    - cron: "0 22 * * 0"
-      timezone: "Europe/Zurich"
+    # Sunday 21:00 UTC
+    - cron: "0 21 * * 0"
   workflow_dispatch:
 
 permissions:
@@ -28,21 +27,8 @@ jobs:
       - name: Checkout icon4py
         uses: actions/checkout@v4
         with:
-          # Full history: the diff baseline is the previous run's head commit,
-          # which can be arbitrarily far back.
           fetch-depth: 0
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap nftables
-
-      - name: Enable unprivileged user namespaces
-        run: |
-          # bwrap needs an unprivileged user namespace. Ubuntu's AppArmor rules
-          # can reject it with "setting up uid map: Permission denied".
-          # See https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -54,30 +40,41 @@ jobs:
 
       - name: Install pi
         run: npm install -g @earendil-works/pi-coding-agent@1.5.2
-      - name: Smoke test
-        run: |
-          pi --version
-          bwrap --version | head -1
 
-      - name: Set up the network firewall
-        # Only the inference endpoint and the pinned package registry may be
-        # reached. All other egress, including github.com, is blocked.
-        run: |
-          sudo python3 ./scripts/data/weekly-review/netns_firewall.py setup api.inference.cscs.ch registry.npmjs.org
+      - name: Install AWF
+        id: awf-setup
+        uses: github/gh-aw-firewall@7dc485464a58130d6ac2e73fe632424eb5d06823
+        with:
+          version: v0.29.12
+          pull-images: "true"
+
       - name: Run review
         env:
           CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./scripts/run weekly-review run \
-            --publish \
-            --netns \
-            --artifacts-dir "${{ github.workspace }}/review-artifacts"
+            --checkout "${{ github.workspace }}" \
+            --repo "${{ github.repository }}" \
+            --severity high \
+            --panel-size 3 \
+            --reviewer architecture \
+            --reviewer correctness \
+            --reviewer performance \
+            --model-id zai-org/GLM-5.3-Flash \
+            --model-base-url https://api.inference.cscs.ch/v1 \
+            --artifacts-dir "${{ github.workspace }}/review-artifacts" \
+            --publish
 
       - name: Report to the job summary
         if: always()
         run: |
-          report="$(ls -t review-artifacts/*.md 2>/dev/null | head -1 || true)"
+          if [[ ! -d review-artifacts ]]; then
+            echo "No overview report was produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          report="$(find review-artifacts -type f -path '*/reports/*.md' -print -quit || true)"
           if [[ -n "$report" ]]; then
             echo "# Weekly review report" >> "$GITHUB_STEP_SUMMARY"
             cat "$report" >> "$GITHUB_STEP_SUMMARY"
@@ -92,8 +89,3 @@ jobs:
           name: weekly-review-${{ github.run_id }}
           path: review-artifacts/
           if-no-files-found: warn
-
-      - name: Tear down the network firewall
-        if: always()
-        run: |
-          sudo python3 ./scripts/data/weekly-review/netns_firewall.py teardown

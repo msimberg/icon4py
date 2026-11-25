@@ -30,10 +30,8 @@ intended structure (package layout, component and granule boundaries, the
 driver/model split).
 
 Start by reading `<findings_dir>/open-issues.json` so you do not re-report
-issues that are already tracked. You may still examine the same files for other
-Do not report a problem matching an entry with `state` `invalid`; a human has
-rejected it. You may still examine the same files for other issues.
-issues.
+tracked issues or human-rejected findings with `state` `invalid`. You may still
+examine the same files for other issues.
 
 Then read `<findings_dir>/changes.diff` for the code that changed since the last
 review. Prioritize the changed code, but also examine the rest of the checkout.
