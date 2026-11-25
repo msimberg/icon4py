@@ -866,6 +866,17 @@ def process_events(process: subprocess.Popen, sessions_dir: Path) -> int:
         watcher.stop()
 
 
+def prepare_awf_mountpoints(tmp_dir: Path) -> None:
+    # AWF uses these paths as bounded tmpfs overlays. With filesystem.allowWrite
+    # making /tmp read-only, Docker cannot create missing mount-point parents.
+    for path in (
+        "gh-aw/mcp-logs",
+        "gh-aw/sandbox/firewall/logs",
+        "gh-aw/sandbox/firewall/audit",
+    ):
+        (tmp_dir / path).mkdir(parents=True, exist_ok=True)
+
+
 def launch_awf(config: RunConfig, workspace: Workspace) -> int:
     awf = shutil.which("awf") or os.environ.get("AWF_BIN")
     if not awf:
@@ -886,6 +897,7 @@ def launch_awf(config: RunConfig, workspace: Workspace) -> int:
     workspace.awf_config.write_text(json.dumps(awf_config, indent=2), encoding="utf-8")
     for path in (workspace.root / "audit", workspace.root / "proxy-logs"):
         path.mkdir(exist_ok=True)
+    prepare_awf_mountpoints(Path("/tmp"))
     env = dict(os.environ)
     env["WEEKLY_REVIEW_OPENAI_BASE_URL"] = config.model_base_url
     log(f"Launching the review with AWF for model {config.model_id}")
