@@ -99,6 +99,7 @@ def main() -> int:
             prompt,
         ],
         env=env,
+        stdin=subprocess.DEVNULL,
         check=False,
     ).returncode
 
