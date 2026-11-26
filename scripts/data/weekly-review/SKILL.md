@@ -70,11 +70,8 @@ A reviewer's findings file is valid only if it has this structure:
 }
 ```
 
-If a reviewer fails or writes malformed results, mark the review
-`incomplete`, record the failed stage in the overview report, and do not use
-that review as a diff baseline. Do not silently turn a failed reviewer into
-an empty successful result. The host validates the result files and the
-completion marker before publication.
+If a reviewer fails or writes malformed results, do not silently turn it into
+an empty successful result: record the failure in the overview report.
 
 ## 2. Skeptic panels
 
@@ -159,21 +156,10 @@ Write `fixedness.json` as exactly one entry per eligible open issue:
 ```
 
 The file must contain only these final merged verdicts, not individual checker
-votes.
-The host validates the complete vote directory for each positive decision. A
-claimed unanimous or majority panel is not sufficient on its own. Invalid or
-missing evidence prevents the affected issue creation, duplicate update, or
-fixedness closure. It must not cause mutations for an unrelated valid candidate.
-Do not claim that every vote is well formed unless each vote actually parses
-and has the required fields.
-
+votes. State panel results only from votes you have read and validated, not from
+claims in the checker outputs.
 
 ## 4. Overview report
-
-The report must contain exactly one completion marker:
-`<!-- weekly-review:complete -->` when all assigned reviewers produced valid
-result files, otherwise `<!-- weekly-review:incomplete -->`. The host rejects
-an incomplete review and does not use it as a later diff baseline.
 
 Write exactly one report to `<reports_dir>/report.md`.
 

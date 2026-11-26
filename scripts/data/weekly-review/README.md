@@ -173,9 +173,9 @@ time, and per-session token usage. Reports and result JSONs are kept directly
 in the run workspace so failures retain diagnostics. `statistics.json` is the
 machine-readable statistics file.
 
-A report includes a completion marker. Incomplete reviews fail and are not
-used as a later diff baseline. GitHub updates are rejected when any assigned
-reviewer output is missing or malformed.
+GitHub updates are rejected when any assigned reviewer output is missing or
+malformed, or when the reports directory does not hold exactly one report. A
+failed run is never used as a later diff baseline.
 ## Diff baseline
 
 The baseline is the head commit of the previous successful run on the same
