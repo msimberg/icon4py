@@ -680,7 +680,8 @@ def prepare_pi_packages(workspace: Workspace) -> None:
     env["PI_TELEMETRY"] = "0"
     pi = find_or_raise("pi")
     log("Installing configured pi packages outside AWF...")
-    subprocess.run([pi, "update", "--extensions"], env=env, check=True, timeout=600)
+    for package in configured_packages():
+        subprocess.run([pi, "install", package], env=env, stdin=subprocess.DEVNULL, check=True, timeout=600)
 
 
 def review_configuration(
