@@ -37,6 +37,8 @@ an API proxy approved for the configured model.
 - The upstream `OPENAI_API_KEY` is given to AWF's proxy on the host.
 - The agent receives only the local proxy endpoint and the fixed placeholder
   `awf-placeholder`. The upstream key is never part of worker configuration.
+- AWF rate limiting is disabled. Upstream request limits apply. Pi retries
+  retryable model requests with backoff.
 - The agent has no GitHub network path and receives no GitHub token. The host
   performs all issue reads and writes.
 
@@ -95,8 +97,9 @@ Add `--publish` to apply reconciled changes. Create labels separately if needed:
 GITHUB_TOKEN=... ./scripts/run weekly-review labels --repo msimberg/icon4py
 ```
 
-`awf` and `pi` must also be on `PATH` (or use `AWF_BIN`). In CI, the setup
-action installs AWF at a pinned revision before the run.
+`awf`, `pi`, `rg`, and `fd` must also be on `PATH` (or use `AWF_BIN`). In CI,
+the setup action installs AWF at a pinned revision before the run. It also
+installs `ripgrep` and `fd-find` and creates the `fd` command link.
 
 ## Issue lifecycle
 

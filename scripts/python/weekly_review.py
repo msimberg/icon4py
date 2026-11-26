@@ -879,6 +879,9 @@ def prepare_awf_mountpoints(tmp_dir: Path) -> None:
 
 
 def launch_awf(config: RunConfig, workspace: Workspace) -> int:
+    # Pi uses these host-installed binaries from inside the AWF chroot.
+    for tool in ("rg", "fd"):
+        find_or_raise(tool)
     awf = shutil.which("awf") or os.environ.get("AWF_BIN")
     if not awf:
         raise ReviewError("awf is not installed. Set up AWF before running the review.")
@@ -891,7 +894,7 @@ def launch_awf(config: RunConfig, workspace: Workspace) -> int:
             "maxTurns": 80,
             "maxPermissionDenied": 5,
         },
-        "rateLimiting": {"requestsPerMinute": 30, "requestsPerHour": 100},
+        "rateLimiting": {"enabled": False},
         "container": {"agentTimeout": 220},
         "filesystem": {"allowWrite": [str(workspace.root)]},
     }
