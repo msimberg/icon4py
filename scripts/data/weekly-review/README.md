@@ -17,15 +17,14 @@ The host driver is `scripts/python/weekly_review.py`:
 
 The `SKILL.md` file defines the reviewer instructions. Reviewers emit JSON with
 finding text, a relative source path, line numbers, and a suggested fix. The
-host validates field types and severity before publication. A malformed
-A list of strings in `description`, `evidence`, or `suggested_fix` is converted
-into Markdown bullets. Other malformed candidates are logged and skipped
-without stopping the run.
+String lists in `description`, `evidence`, or `suggested_fix` become Markdown
+bullets. Other malformed candidates are logged and skipped without stopping
+the run.
 
 The orchestrator writes exactly one merged fixedness verdict per eligible open
-issue. All panel votes of `fixed` close the issue. At least two `persists` votes
-add a comment. Other verdicts leave it open. No fixedness panels run for closed
-or human-rejected issues.
+`fixed` closes an issue only when every checker votes `fixed`. `persists`
+requires a strict majority of the configured panel to add a comment. Other
+verdicts leave it open. No fixedness panels run for closed or human-rejected issues.
 
 ## Isolation and credentials
 
@@ -129,6 +128,18 @@ Labels are created automatically:
 | `ai-review:confirmed` | A human confirmed it |
 | `ai-review:invalid` | A human rejected it; suppress later duplicates |
 
+`needs-triage` is the initial state for human review. `confirmed` records a
+human's review and acceptance of a finding. These labels do not change the
+voting, duplicate, severity, or fixedness rules.
+
+Before publication, the host validates the complete vote directory for each
+positive decision. It reads `votes/<candidate_index>/` for new and duplicate
+findings, and `fixedness/<issue-number>/` for fixedness. A candidate index is a
+per-run locator for evidence, not a fingerprint or an identity across runs.
+The issue number remains the ledger identity. Invalid or missing votes suppress
+only the affected positive action and are recorded in the report. Fixedness
+falls back to `unknown` when valid evidence does not support the claimed verdict.
+
 ## Issue format and report
 
 An accepted finding has text fields, a source path, line range, reviewer,
@@ -139,6 +150,16 @@ used by later reviews. Location links pin to the detected commit:
 ```text
 https://github.com/<owner>/<repo>/blob/<commit>/<path>#L<start>-L<end>
 ```
+
+The host expands file references in narrative text, including `path.py:10`,
+`path.py:10-20`, and bare filenames when they resolve unambiguously. The targets
+are files tracked at the detection commit. Ambiguous basenames stay unchanged.
+Hidden metadata, existing links, HTML comments, and fenced code examples remain
+unchanged.
+
+The `Run` entry links to the actual GitHub Actions invocation, including its
+attempt number for retries. Local runs use an informative timestamp identifier
+instead of an ISO-week label.
 
 Later runs recover the metadata, Summary, Suggested fix, issue number, title,
 state, and labels. This is intentionally not a full reconstruction of the raw

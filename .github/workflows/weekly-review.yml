@@ -59,17 +59,21 @@ jobs:
           CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_SEVERITY: high
+          REVIEW_PANEL_SIZE: 3
+          REVIEW_BASE_URL: "https://api.inference.cscs.ch/v1"
+          REVIEW_MODEL_ID: "zai-org/GLM-5.3-Flash"
         run: |
           ./scripts/run weekly-review run \
             --checkout "${{ github.workspace }}" \
             --repo "${{ github.repository }}" \
-            --severity high \
-            --panel-size 3 \
+            --severity "${REVIEW_SEVERITY}" \
+            --panel-size "${REVIEW_PANEL_SIZE}" \
             --reviewer architecture \
             --reviewer correctness \
             --reviewer performance \
-            --model-id zai-org/GLM-5.3-Flash \
-            --model-base-url https://api.inference.cscs.ch/v1 \
+            --model-id "${REVIEW_MODEL_ID}" \
+            --model-base-url "${REVIEW_BASE_URL}" \
             --artifacts-dir "${{ github.workspace }}/review-artifacts" \
             --publish
 

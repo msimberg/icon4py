@@ -64,9 +64,7 @@ def main() -> int:
         f"{item['name']} (output {item['output_path']})" for item in config["reviewers"]
     )
     prompt = (
-        "Run the weekly icon4py review. "
-        f"icon4py_checkout={config['checkout']}. icon4py_commit={config['commit']}. "
-        f"review_date={config['review_date']}. run_id={config['run_id']}. "
+        f"icon4py_checkout={config['checkout']}. "
         f"requested_severity={config['severity']}. panel_size={config['panel_size']}. "
         f"reviewers={reviewers}. "
         f"findings_dir={findings_dir}. reports_dir={reports_dir}. "

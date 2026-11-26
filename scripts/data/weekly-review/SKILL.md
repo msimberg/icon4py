@@ -12,9 +12,6 @@ issues directly.
 Task inputs:
 
 - `icon4py_checkout`: read-only repository path
-- `icon4py_commit`: full commit SHA under review
-- `review_date`: YYYY-MM-DD
-- `run_id`: identifier for this run
 - `requested_severity`: minimum severity to report
 - `panel_size`: number of votes per finding
 - `reviewers`: reviewers to run and each reviewer's output path
@@ -84,13 +81,17 @@ against other candidates from this run before accepting anything. When two
 candidates describe the same root problem, keep one coherent finding and
 concentrate its evidence. Record the consolidation in the report.
 
-For each remaining candidate at position `i`, starting from 1, spawn `N`
-`icon4py-finding-skeptic` agents. Give them:
+Give each remaining candidate a distinct positive integer `candidate_index`,
+starting from 1. This is a local locator for evidence files, not a fingerprint
+or an identity across runs. Keep the index attached when some candidates are
+rejected or merged; do not renumber the accepted subset.
+
+For each candidate, spawn `N` `icon4py-finding-skeptic` agents. Give them:
 
 - `icon4py_checkout`
 - the full finding
 - `open_issues`: entries from `open-issues.json`
-- an output path `<findings_dir>/votes/<i>/<j>.json` for `j` from 1 to `N`
+- an output path `<findings_dir>/votes/<candidate_index>/<j>.json` for `j` from 1 to `N`
 
 Each skeptic returns `verdict` in `PASS|REJECT|DUPLICATE|UNCERTAIN`. For
 `DUPLICATE`, it returns the existing issue `number` in `duplicate_of`.
@@ -110,15 +111,16 @@ For duplicate entries, use `confidence` `high` if all `N` votes are `DUPLICATE`,
 `medium` if at least two but fewer than `N` are `DUPLICATE`, and `low` if one
 is `DUPLICATE`. Include consolidated skeptic reasoning in the report.
 
-`accepted.json` is a flat list. Each entry contains the reviewer fields listed
-above plus `reviewer`, `confidence` (`high` for a full `PASS` panel), and
-`tags`. Tags are 3-6 short kebab-case keywords about the problem.
+`accepted.json` is a flat list. Each entry contains `candidate_index`, the
+reviewer fields listed above, `reviewer`, `confidence` (`high` for a full
+`PASS` panel), and `tags`. Tags are 3-6 short kebab-case keywords.
 
 `duplicates.json` is a flat list with entries of this form:
 
 ```json
 {
   "finding": {"title": "...", "file": "...", "lines": [1, 2]},
+  "candidate_index": 1,
   "duplicate_of": 123,
   "confidence": "high|medium|low",
   "reasoning": "..."
@@ -131,9 +133,8 @@ Only entries with `state == "open"` are eligible. Skip `pipeline-closed` and
 `invalid` entries, entries matched by a duplicate finding, and entries whose
 problem was accepted as a new finding.
 
-For an eligible entry whose stored `commit` equals `icon4py_commit`, write one
-entry `{"number": <number>, "verdict": "not-detected"}` without starting a
-panel.
+For an eligible entry that carries a precomputed `fixedness` verdict, copy that
+verdict into `fixedness.json` and do not start a panel for it.
 
 For every other eligible entry at issue number `number`, spawn `N`
 `icon4py-fixedness-checker` agents. Give them the checkout, the issue fields,
@@ -156,7 +157,14 @@ Write `fixedness.json` as exactly one entry per eligible open issue:
 ```
 
 The file must contain only these final merged verdicts, not individual checker
-votes. The host validates this contract and applies it directly.
+votes.
+The host validates the complete vote directory for each positive decision. A
+claimed unanimous or majority panel is not sufficient on its own. Invalid or
+missing evidence prevents the affected issue creation, duplicate update, or
+fixedness closure. It must not cause mutations for an unrelated valid candidate.
+Do not claim that every vote is well formed unless each vote actually parses
+and has the required fields.
+
 
 ## 4. Overview report
 
@@ -165,11 +173,10 @@ The report must contain exactly one completion marker:
 result files, otherwise `<!-- weekly-review:incomplete -->`. The host rejects
 an incomplete review and does not use it as a later diff baseline.
 
-Write exactly one report to `<reports_dir>/<review_date>-<HHMM>.md`.
+Write exactly one report to `<reports_dir>/report.md`.
 
 Include:
 
-- Date, run id, and icon4py commit
 - Counts for candidates, accepted findings, duplicates, rejected and uncertain
   candidates, and fixedness outcomes
 - Accepted finding titles, severity, confidence, reviewer, file, and lines
@@ -179,5 +186,3 @@ Include:
 - Fixedness outcomes for eligible open issues
 - Reviewer, checker, or parser failures
 
-Do not create GitHub URLs manually. The host converts repository-relative
-locations to commit-pinned links and records all publication actions separately.

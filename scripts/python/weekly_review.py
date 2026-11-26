@@ -33,6 +33,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 from zoneinfo import ZoneInfo
@@ -345,11 +346,179 @@ def public_issue_entry(entry: dict) -> dict:
     return {key: value for key, value in entry.items() if key != "source_body"}
 
 
-def file_link(repo: str, commit: str, file: str, lines: list[int]) -> str:
+def file_link(repo: str, commit: str, file: str, lines: list[int] | None = None) -> str:
     url = f"https://github.com/{repo}/blob/{commit}/{file}"
+    if not lines:
+        return url
     if len(lines) == 2 and lines[1] > lines[0]:
         return f"{url}#L{lines[0]}-L{lines[1]}"
     return f"{url}#L{lines[0]}"
+
+
+def workflow_run_metadata(started: datetime, repo: str) -> tuple[str, str | None]:
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return f"local-{started.strftime('%Y%m%d-%H%M%S')}", None
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    if not run_id.isascii() or not run_id.isdigit() or int(run_id) < 1:
+        raise ReviewError("Invalid GitHub run id")
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    if not attempt.isascii() or not attempt.isdigit() or int(attempt) < 1:
+        raise ReviewError("Invalid GitHub run attempt")
+    server = (os.environ.get("GITHUB_SERVER_URL") or "https://github.com").rstrip("/")
+    url = f"{server}/{repo}/actions/runs/{run_id}"
+    if int(attempt) > 1:
+        url += f"/attempts/{attempt}"
+    return run_id, url
+
+
+def run_reference(run_id: str, run_url: str | None) -> str:
+    if run_url:
+        return f"[GitHub Actions run]({run_url})"
+    return f"`{run_id}`"
+
+
+@lru_cache(maxsize=4)
+def tracked_source_files(checkout: str, commit: str) -> tuple[str, ...]:
+    result = subprocess.run(
+        ["git", "-C", checkout, "ls-tree", "-r", "--name-only", "-z", commit],
+        check=False,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=120,
+    )
+    if result.returncode:
+        raise ReviewError(f"Cannot load source files at {commit}: {result.stderr.strip()}")
+    return tuple(path for path in result.stdout.split(chr(0)) if path)
+
+
+def source_path_for_reference(
+    reference: str,
+    checkout: Path,
+    commit: str,
+    primary_file: str | None = None,
+) -> str | None:
+    root = checkout.resolve()
+    candidate = Path(reference)
+    if candidate.is_absolute():
+        try:
+            relative = candidate.resolve().relative_to(root).as_posix()
+        except ValueError:
+            return None
+    else:
+        relative = reference
+        while relative.startswith("./"):
+            relative = relative[2:]
+    if not relative or ".." in Path(relative).parts:
+        return None
+
+    files = set(tracked_source_files(str(root), commit))
+    if primary_file and "/" not in relative:
+        primary = Path(primary_file)
+        if relative == primary.name and primary_file in files:
+            return primary_file
+        local = (primary.parent / relative).as_posix()
+        if local in files:
+            return local
+    if relative in files:
+        return relative
+    matches = [path for path in files if path.endswith("/" + relative)]
+    return matches[0] if len(matches) == 1 else None
+
+
+CODE_REFERENCE_RE = re.compile(
+    r"(?<![\w/.\-])"
+    r"(?P<code>`)?"
+    r"(?P<path>/?(?:[\w.-]+/)*[\w.-]+\.[A-Za-z0-9_]+)"
+    r"(?::(?P<start>\d+)(?:[-\u2013](?P<end>\d+))?)?"
+    r"(?(code)`)"
+    r"(?!\d)"
+)
+
+MARKDOWN_LINK_RE = re.compile(r"(\[[^\]\n]+\]\([^)\n]+\))")
+
+
+def link_code_references(
+    text: str,
+    checkout: Path | None,
+    repo: str,
+    commit: str,
+    primary_file: str | None = None,
+) -> str:
+    if not text or checkout is None or repo is None or commit is None:
+        return text
+    root = checkout.resolve()
+
+    def expand_fragment(fragment: str) -> str:
+        def replace(match: re.Match) -> str:
+            prefix = fragment.rfind("://", 0, match.start())
+            if prefix >= 0:
+                space = fragment.find(" ", prefix, match.start())
+                if space < 0 or match.start() < space:
+                    return match.group(0)
+            following = match.string[match.end():]
+            if len(following) > 1 and following[0] == "." and following[1].isdigit():
+                return match.group(0)
+            start_text = match.group("start")
+            end_text = match.group("end")
+            if start_text is None:
+                lines = []
+            else:
+                start = int(start_text)
+                end = int(end_text) if end_text else start
+                if start < 1 or end < start:
+                    return match.group(0)
+                lines = [start, end]
+            resolved = source_path_for_reference(
+                match.group("path"), root, commit, primary_file
+            )
+            if resolved is None:
+                return match.group(0)
+            return f"[{match.group(0)}]({file_link(repo, commit, resolved, lines)})"
+
+        parts = MARKDOWN_LINK_RE.split(fragment)
+        return "".join(
+            part if MARKDOWN_LINK_RE.fullmatch(part) else CODE_REFERENCE_RE.sub(replace, part)
+            for part in parts
+        )
+
+    output = []
+    ordinary = []
+    in_fence = False
+    in_comment = False
+
+    def flush() -> None:
+        if ordinary:
+            output.append(expand_fragment("".join(ordinary)))
+            ordinary.clear()
+
+    for line in text.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if in_comment:
+            output.append(line)
+            if "-->" in stripped:
+                in_comment = False
+            continue
+        if in_fence:
+            output.append(line)
+            if stripped.startswith(("```", "~~~")):
+                in_fence = False
+            continue
+        if stripped.startswith("<!--"):
+            flush()
+            output.append(line)
+            comment_tail = stripped[4:]
+            if "-->" not in comment_tail:
+                in_comment = True
+            continue
+        if stripped.startswith(("```", "~~~")):
+            flush()
+            output.append(line)
+            in_fence = True
+        else:
+            ordinary.append(line)
+    flush()
+    return "".join(output)
 
 
 def format_duration(seconds: float | None) -> str:
@@ -361,7 +530,16 @@ def format_duration(seconds: float | None) -> str:
     return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
 
 
-def render_issue_body(finding: dict, repo: str, commit: str, date: str, run_id: str, panel_size: int) -> str:
+def render_issue_body(
+    finding: dict,
+    repo: str,
+    commit: str,
+    date: str,
+    run_id: str,
+    panel_size: int,
+    run_url: str | None = None,
+    checkout: Path | None = None,
+) -> str:
     metadata = {
         "file": finding["file"],
         "lines": f"{finding['lines'][0]}-{finding['lines'][1]}",
@@ -372,29 +550,34 @@ def render_issue_body(finding: dict, repo: str, commit: str, date: str, run_id: 
         "commit": commit,
         "run_id": run_id,
     }
+    if run_url:
+        metadata["run_url"] = run_url
     lines = [METADATA_BEGIN]
     lines.extend(f"{key}: {value}" for key, value in metadata.items())
+    description = link_code_references(finding["description"], checkout, repo, commit, finding["file"])
+    evidence = link_code_references(finding["evidence"], checkout, repo, commit, finding["file"])
+    suggested_fix = link_code_references(finding["suggested_fix"], checkout, repo, commit, finding["file"])
     lines.extend(
         [
             METADATA_END,
             "## Summary",
             "",
-            finding["description"],
+            description,
             "",
             "## Evidence",
             "",
-            finding["evidence"],
+            evidence,
             "",
             "## Suggested fix",
             "",
-            finding["suggested_fix"],
+            suggested_fix,
             "",
             "## Details",
             "",
             f"- Found by: `{finding['reviewer']}` (skeptic panel: {panel_size}/{panel_size} PASS)",
             f"- Location at detection: [{finding['file']} @ `{commit[:9]}`]({file_link(repo, commit, finding['file'], finding['lines'])})",
             f"- Tags: {', '.join(finding['tags'])}",
-            f"- Run: `{run_id}`",
+            f"- Run: {run_reference(run_id, run_url)}",
             "",
             "<sub>Automatic weekly review. Add `ai-review:confirmed` to confirm the finding."
             f" Add `{INVALID_LABEL}` to reject it and suppress equivalent future findings."
@@ -405,7 +588,7 @@ def render_issue_body(finding: dict, repo: str, commit: str, date: str, run_id: 
     return "\n".join(lines)
 
 
-def update_last_seen(entry: dict, date: str, run_id: str) -> str:
+def update_last_seen(entry: dict, date: str, run_id: str, run_url: str | None = None) -> str:
     body = entry["source_body"]
     start = body.find(METADATA_BEGIN)
     end = body.find(METADATA_END, start)
@@ -413,11 +596,138 @@ def update_last_seen(entry: dict, date: str, run_id: str) -> str:
         return body
     metadata = body[start + len(METADATA_BEGIN) : end]
     metadata = re.sub(r"(?m)^last_seen:.*$", f"last_seen: {date}", metadata)
-    if re.search(r"(?m)^run_id:", metadata):
+    if re.search(r"(?m)^run_id:.*$", metadata):
         metadata = re.sub(r"(?m)^run_id:.*$", f"run_id: {run_id}", metadata)
     else:
         metadata = metadata.rstrip() + f"\nrun_id: {run_id}\n"
+    if run_url:
+        if re.search(r"(?m)^run_url:.*$", metadata):
+            metadata = re.sub(r"(?m)^run_url:.*$", f"run_url: {run_url}", metadata)
+        else:
+            metadata = metadata.rstrip() + f"\nrun_url: {run_url}\n"
     return body[:start] + METADATA_BEGIN + metadata + body[end:]
+
+
+class PanelEvidenceError(ReviewError):
+    """A missing or malformed vote prevents a positive panel decision."""
+
+
+def record_validation_issue(notes: list[str] | None, message: str) -> None:
+    warn(message)
+    if notes is not None:
+        notes.append(message)
+
+
+def claim_candidate_index(record: dict, claimed: set[int]) -> int:
+    candidate_index = record.get("candidate_index") if isinstance(record, dict) else None
+    if (
+        isinstance(candidate_index, bool)
+        or not isinstance(candidate_index, int)
+        or candidate_index < 1
+    ):
+        raise PanelEvidenceError("candidate_index must be a positive integer")
+    if candidate_index in claimed:
+        raise PanelEvidenceError(f"candidate_index {candidate_index} is used by more than one finding")
+    claimed.add(candidate_index)
+    return candidate_index
+
+
+def declared_candidate_indices(records: object) -> set[int]:
+    if not isinstance(records, list):
+        return set()
+    indices = set()
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        index = record.get("candidate_index")
+        if not isinstance(index, int) or isinstance(index, bool) or index < 1:
+            continue
+        indices.add(index)
+    return indices
+
+
+def read_panel_votes(
+    directory: Path,
+    panel_size: int,
+    expected_voter: str,
+    allowed_verdicts: set[str],
+    fixedness_issue: int | None = None,
+) -> list[dict]:
+    expected_names = {f"{index}.json" for index in range(1, panel_size + 1)}
+    try:
+        if directory.is_symlink():
+            raise PanelEvidenceError(f"Panel directory must not be a symlink: {directory}")
+        directory = directory.resolve()
+        findings_root = directory.parent.parent.resolve()
+        if not directory.is_relative_to(findings_root):
+            raise PanelEvidenceError(f"Panel path is outside findings: {directory}")
+        entries = list(directory.iterdir())
+    except OSError as exc:
+        raise PanelEvidenceError(f"Cannot read panel directory {directory}: {exc}") from exc
+
+    actual_names = set()
+    for entry in entries:
+        if entry.suffix != ".json":
+            continue
+        if entry.is_symlink():
+            raise PanelEvidenceError(f"Panel file must not be a symlink: {entry}")
+        resolved = entry.resolve()
+        if resolved.parent != directory or resolved.name != entry.name or not resolved.is_file():
+            raise PanelEvidenceError(f"Unexpected panel file: {entry.name}")
+        actual_names.add(entry.name)
+    if actual_names != expected_names:
+        raise PanelEvidenceError(
+            f"Panel {directory}: expected {sorted(expected_names)}, found {sorted(actual_names)}"
+        )
+
+    votes = []
+    for index in range(1, panel_size + 1):
+        filename = directory / f"{index}.json"
+        try:
+            vote = read_json(filename)
+        except ReviewError as exc:
+            raise PanelEvidenceError(f"Invalid vote {filename.name}: {exc}") from exc
+        if not isinstance(vote, dict):
+            raise PanelEvidenceError(f"Invalid vote {filename.name}: expected an object")
+        if vote.get("voter") != expected_voter:
+            raise PanelEvidenceError(f"Invalid voter in {filename.name}")
+        verdict = vote.get("verdict")
+        if verdict not in allowed_verdicts:
+            raise PanelEvidenceError(f"Invalid verdict in {filename.name}: {verdict!r}")
+        if not isinstance(vote.get("reasoning"), str) or not vote["reasoning"].strip():
+            raise PanelEvidenceError(f"Reasoning is required in {filename.name}")
+        duplicate_of = vote.get("duplicate_of")
+        if verdict == "DUPLICATE":
+            if isinstance(duplicate_of, bool) or not isinstance(duplicate_of, int) or duplicate_of < 1:
+                raise PanelEvidenceError(f"Invalid duplicate target in {filename.name}")
+        elif duplicate_of is not None:
+            raise PanelEvidenceError(f"Unexpected duplicate target in {filename.name}")
+        if fixedness_issue is not None and "number" in vote:
+            number = vote["number"]
+            if isinstance(number, bool) or not isinstance(number, int) or number != fixedness_issue:
+                raise PanelEvidenceError(f"Vote {filename.name} references the wrong issue")
+        votes.append(vote)
+    return votes
+
+
+def read_skeptic_panel(record: dict, workspace: Workspace, panel_size: int, claimed: set[int]) -> list[dict]:
+    candidate_index = claim_candidate_index(record, claimed)
+    return read_panel_votes(
+        workspace.findings / "votes" / str(candidate_index),
+        panel_size,
+        "icon4py-finding-skeptic",
+        {"PASS", "REJECT", "DUPLICATE", "UNCERTAIN"},
+    )
+
+
+def read_fixedness_panel(number: int, workspace: Workspace, panel_size: int) -> list[dict]:
+    return read_panel_votes(
+        workspace.findings / "fixedness" / str(number),
+        panel_size,
+        "icon4py-fixedness-checker",
+        {"fixed", "persists", "unknown"},
+        fixedness_issue=number,
+    )
 
 
 def prepare_normalized_finding(finding: object, severity: str) -> dict | None:
@@ -463,30 +773,51 @@ def validate_finding(finding: object, severity: str) -> tuple[bool, str | None]:
     return True, None
 
 
-def validate_accepted(findings: object, severity: str) -> list[dict]:
+def validate_accepted(
+    findings: object,
+    severity: str,
+    workspace: Workspace,
+    panel_size: int,
+    claimed_indices: set[int] | None = None,
+    validation_notes: list[str] | None = None,
+) -> list[dict]:
     if not isinstance(findings, list):
         raise ReviewError("accepted.json must contain a JSON list")
+    claimed = claimed_indices if claimed_indices is not None else set()
     accepted = []
     for finding in findings:
         normalized = prepare_normalized_finding(finding, severity)
         if normalized is None:
             warn("Skipping malformed accepted finding")
             continue
+        try:
+            votes = read_skeptic_panel(normalized, workspace, panel_size, claimed)
+            if any(vote["verdict"] != "PASS" for vote in votes):
+                raise PanelEvidenceError("A new issue requires only PASS votes")
+        except PanelEvidenceError as exc:
+            record_validation_issue(validation_notes, f"New finding {normalized['title']!r} was not published: {exc}")
+            continue
+        normalized["confidence"] = "high"
         accepted.append(normalized)
     return accepted
 
 
 def canonical_fixedness(
     verdicts: object,
+    workspace: Workspace,
+    panel_size: int,
     tracked: list[dict],
     duplicate_ids: set[int] | None = None,
     initial: list[dict] | None = None,
     icon4py_commit: str | None = None,
+    validation_notes: list[str] | None = None,
 ) -> dict[int, str]:
     if not isinstance(verdicts, list):
         raise ReviewError("fixedness.json must contain a JSON list")
     if initial is None:
         initial = tracked
+    # These targets were named as duplicates before vote validation. Their
+    # corresponding fixedness panels were deliberately skipped.
     duplicate_ids = duplicate_ids or set()
     by_number = {entry["number"]: entry["state"] for entry in tracked}
     eligible = {
@@ -494,7 +825,12 @@ def canonical_fixedness(
     } - duplicate_ids
     merged: dict[int, str] = {}
     for verdict in verdicts:
-        if not isinstance(verdict, dict) or isinstance(verdict.get("number"), bool) or not isinstance(verdict.get("number"), int) or verdict.get("verdict") not in FIXEDNESS_VALUES:
+        if (
+            not isinstance(verdict, dict)
+            or isinstance(verdict.get("number"), bool)
+            or not isinstance(verdict.get("number"), int)
+            or verdict.get("verdict") not in FIXEDNESS_VALUES
+        ):
             raise ReviewError(f"Invalid fixedness entry: {verdict!r}")
         number = verdict["number"]
         if number in duplicate_ids:
@@ -506,15 +842,43 @@ def canonical_fixedness(
         if by_number.get(number) != "open":
             warn(f"Ignoring fixedness for a non-open issue #{number}: {by_number.get(number)}")
             continue
-        if by_number.get(number) == "open" and verdict["verdict"] == "not-detected":
+
+        claimed_verdict = verdict["verdict"]
+        if claimed_verdict == "unknown":
+            merged[number] = "unknown"
+            continue
+        if claimed_verdict == "not-detected":
             entry_commit = next(
                 (entry.get("commit", "") for entry in initial if entry["number"] == number),
                 None,
             )
-            if entry_commit != icon4py_commit:
-                warn(f"Issue #{number}: not-detected for a different commit changed to unknown")
-                verdict = dict(verdict, verdict="unknown")
-        merged[number] = verdict["verdict"]
+            if entry_commit == icon4py_commit:
+                merged[number] = "not-detected"
+            else:
+                merged[number] = "unknown"
+                record_validation_issue(
+                    validation_notes,
+                    f"Issue #{number}: not-detected changed to unknown because the issue commit differs from {icon4py_commit}",
+                )
+            continue
+
+        resolved = claimed_verdict
+        failure = None
+        try:
+            votes = read_fixedness_panel(number, workspace, panel_size)
+            if claimed_verdict == "fixed":
+                resolved = "fixed" if all(vote["verdict"] == "fixed" for vote in votes) else "unknown"
+            else:
+                support = sum(vote["verdict"] == "persists" for vote in votes)
+                resolved = "persists" if 2 * support > panel_size else "unknown"
+        except PanelEvidenceError as exc:
+            resolved = "unknown"
+            failure = str(exc)
+        if resolved != claimed_verdict:
+            suffix = f" ({failure})" if failure else ""
+            record_validation_issue(validation_notes, f"Issue #{number}: {claimed_verdict} changed to unknown{suffix}")
+        merged[number] = resolved
+
     unexpected = merged.keys() - eligible
     if unexpected:
         raise ReviewError(f"Fixedness verdicts for ineligible issues: {sorted(unexpected)}")
@@ -524,28 +888,64 @@ def canonical_fixedness(
     return merged
 
 
-def canonical_duplicates(duplicates: object, severity: str) -> list[dict]:
+def canonical_duplicates(
+    duplicates: object,
+    severity: str,
+    workspace: Workspace,
+    panel_size: int,
+    claimed_indices: set[int] | None = None,
+    validation_notes: list[str] | None = None,
+) -> list[dict]:
     if not isinstance(duplicates, list):
         raise ReviewError("duplicates.json must contain a JSON list")
+    claimed = claimed_indices if claimed_indices is not None else set()
     valid = []
     for duplicate in duplicates:
         number = duplicate.get("duplicate_of") if isinstance(duplicate, dict) else None
         if isinstance(number, bool) or not isinstance(number, int) or number < 1:
             warn(f"Skipping duplicate with invalid issue number: {duplicate!r}")
             continue
-        finding = duplicate.get("finding")
-        normalized = prepare_normalized_finding(finding, severity)
+        normalized = prepare_normalized_finding(duplicate.get("finding"), severity)
         if normalized is None:
             warn(f"Skipping duplicate #{number}: malformed finding")
             continue
         duplicate = dict(duplicate, finding=normalized)
-        confidence = duplicate.get("confidence")
-        if confidence not in {"high", "medium", "low"}:
-            warn(f"Skipping duplicate #{number}: invalid confidence {confidence!r}")
+        if duplicate.get("confidence") not in {"high", "medium", "low"}:
+            warn(f"Skipping duplicate #{number}: invalid confidence {duplicate.get('confidence')!r}")
             continue
         if not isinstance(duplicate.get("reasoning"), str) or not duplicate["reasoning"].strip():
             warn(f"Skipping duplicate #{number}: reasoning is required")
             continue
+        try:
+            votes = read_skeptic_panel(duplicate, workspace, panel_size, claimed)
+            if any(vote["verdict"] not in {"PASS", "DUPLICATE"} for vote in votes):
+                raise PanelEvidenceError("A duplicate requires only PASS or DUPLICATE votes")
+            targets = {
+                vote["duplicate_of"]
+                for vote in votes
+                if vote["verdict"] == "DUPLICATE"
+            }
+            if not targets:
+                raise PanelEvidenceError("No DUPLICATE vote supports this duplicate")
+            if targets != {number}:
+                raise PanelEvidenceError(f"Duplicate targets {sorted(targets)} do not match issue #{number}")
+        except PanelEvidenceError as exc:
+            record_validation_issue(validation_notes, f"Duplicate for issue #{number} was not applied: {exc}")
+            continue
+
+        count = sum(vote["verdict"] == "DUPLICATE" for vote in votes)
+        if count == panel_size:
+            confidence = "high"
+        elif count >= 2:
+            confidence = "medium"
+        else:
+            confidence = "low"
+        if duplicate["confidence"] != confidence:
+            record_validation_issue(
+                validation_notes,
+                f"Issue #{number}: duplicate confidence {duplicate['confidence']} changed to {confidence}",
+            )
+        duplicate["confidence"] = confidence
         valid.append(duplicate)
     return valid
 
@@ -563,10 +963,13 @@ def reconcile(
     panel_size: int,
     publish: bool,
     actions: list[dict] | None = None,
+    checkout: Path | None = None,
+    run_url: str | None = None,
 ) -> list[dict]:
     if actions is None:
         actions = []
     by_number = {entry["number"]: entry for entry in tracked}
+    run_ref = run_reference(run_id, run_url)
     if actions is None:
         actions = []
 
@@ -589,10 +992,10 @@ def reconcile(
             record("reopened", target, "re-detected by the review panel")
             entry["state"] = "open"
         if publish:
-            github.update(target, body=update_last_seen(entry, date, run_id))
+            github.update(target, body=update_last_seen(entry, date, run_id, run_url))
             github.comment(
                 target,
-                f"Re-detected in run `{run_id}` at commit "
+                f"Re-detected in {run_ref} at commit "
                 f"[`{commit[:9]}`](https://github.com/{repo}/commit/{commit}).\n\n"
                 f"**Finding:** {duplicate['finding']['title']}\n\n"
                 f"Panel: {duplicate.get('confidence', 'unspecified')}-confidence duplicate match.",
@@ -601,7 +1004,10 @@ def reconcile(
 
     for finding in accepted:
         if publish:
-            number = github.create_issue(finding["title"], render_issue_body(finding, repo, commit, date, run_id, panel_size))
+            number = github.create_issue(
+                finding["title"],
+                render_issue_body(finding, repo, commit, date, run_id, panel_size, run_url, checkout),
+            )
             record("created", number, finding["title"], f"https://github.com/{repo}/issues/{number}")
         else:
             record("new", None, finding["title"])
@@ -613,13 +1019,13 @@ def reconcile(
         if verdict == "fixed":
             github.comment(
                 number,
-                f"The fixedness panel resolved this issue at commit "
+                f"The fixedness panel resolved this issue in {run_ref} at commit "
                 f"[`{commit[:9]}`](https://github.com/{repo}/commit/{commit}). Closing as completed.",
             )
             github.update(number, state="closed", state_reason="completed")
             record("closed", number, "fixed by panel reopening later if re-detected")
         elif verdict == "persists":
-            github.comment(number, f"The fixedness panel finds this still present in run `{run_id}` at commit `{commit[:9]}`.")
+            github.comment(number, f"The fixedness panel finds this still present in {run_ref} at commit `{commit[:9]}`.")
             record("commented", number, "fixedness: persists")
         else:
             record("no-op", number, f"fixedness: {verdict}")
@@ -684,18 +1090,9 @@ def prepare_pi_packages(workspace: Workspace) -> None:
         subprocess.run([pi, "install", package], env=env, stdin=subprocess.DEVNULL, check=True, timeout=600)
 
 
-def review_configuration(
-    config: RunConfig,
-    commit: str,
-    workspace: Workspace,
-    review_date: str,
-    run_id: str,
-) -> dict:
+def review_configuration(config: RunConfig, workspace: Workspace) -> dict:
     return {
         "checkout": str(config.checkout),
-        "commit": commit,
-        "review_date": review_date,
-        "run_id": run_id,
         "severity": config.severity,
         "panel_size": config.panel_size,
         "model_id": config.model_id,
@@ -708,7 +1105,6 @@ def review_configuration(
         ],
         "packages": configured_packages(),
     }
-
 
 def short_value(value: object, limit: int = 240) -> str:
     text = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
@@ -834,7 +1230,7 @@ class TranscriptWatcher:
         if not isinstance(event, dict) or event.get("type") != "message":
             return
         message = event.get("message") or {}
-        identifier = path.stem.rsplit("_", 1)[-1][:8]
+        identifier = path.stem.rsplit("_", 1)[-1]
         prefix = f"subagent {identifier}: "
         if message.get("role") == "assistant":
             for content in message.get("content") or []:
@@ -985,7 +1381,48 @@ def collect_statistics(workspace: Workspace, elapsed_seconds: float) -> dict:
     }
 
 
-def append_report(workspace: Workspace, actions: list[dict], publish: bool, stats: dict, failure: str | None = None) -> None:
+def append_report(
+    workspace: Workspace,
+    actions: list[dict],
+    publish: bool,
+    stats: dict,
+    failure: str | None = None,
+    validation_notes: list[str] | None = None,
+    run_id: str | None = None,
+    run_url: str | None = None,
+    review_date: str | None = None,
+    repo: str | None = None,
+    commit: str | None = None,
+    checkout: Path | None = None,
+) -> None:
+    report_path = overview_path(workspace)
+    report_text = report_path.read_text(encoding="utf-8")
+    if validation_notes:
+        prefix = ["**Host panel validation (overrides conflicting model panel claims):**", ""]
+        prefix.extend(f"- {message}" for message in validation_notes)
+        prefix.append("")
+        report_text = "\n".join(prefix) + "\n" + report_text
+    if run_id is not None or run_url:
+        reference = run_reference(run_id, run_url)
+        previous_line = r"(?m)^- \*\*Run id:\*\*.*$"
+        if re.search(previous_line, report_text):
+            report_text = re.sub(previous_line, f"- **Run:** {reference}", report_text, count=1)
+        elif not re.search(r"(?m)^- \*\*Run:\*\*", report_text):
+            date_line = r"(?m)^- \*\*Date:\*\*.*$"
+            if re.search(date_line, report_text):
+                report_text = re.sub(
+                    date_line,
+                    lambda match: match.group(0) + f"\n- **Run:** {reference}",
+                    report_text,
+                    count=1,
+                )
+            else:
+                report_text = f"- **Run:** {reference}\n\n" + report_text
+    if review_date and not re.search(r"(?m)^- \*\*Date:\*\*", report_text):
+        report_text = f"- **Date:** {review_date}\n" + report_text
+    if commit and not re.search(r"(?m)^- \*\*icon4py commit:\*\*", report_text):
+        report_text = f"- **icon4py commit:** `{commit}`\n" + report_text
+    report_text = link_code_references(report_text, checkout, repo, commit)
     lines = ["", "## GitHub reconciliation", ""]
     if failure:
         lines.extend([f"**Run failed:** {failure}", ""])
@@ -1017,15 +1454,14 @@ def append_report(workspace: Workspace, actions: list[dict], publish: bool, stat
         ]
     )
     for item in stats["orchestrator_sessions"] + stats["subagent_sessions"]:
-        identifier = item["file"].rsplit("_", 1)[-1].removesuffix(".jsonl")[:8]
+        identifier = item["file"].rsplit("_", 1)[-1].removesuffix(".jsonl")
         usage = item["tokens"]
         lines.append(
             f"| {item['role']} ({identifier}) | {format_duration(item['elapsed_seconds'])} | "
             f"{usage['input']:,} | {usage['cacheRead']:,} | {usage['output']:,} | "
             f"{usage['reasoning']:,} | {usage['totalTokens']:,} |"
         )
-    with overview_path(workspace).open("a", encoding="utf-8") as handle:
-        handle.write("\n".join(lines) + "\n")
+    report_path.write_text(report_text + "\n".join(lines) + "\n", encoding="utf-8")
 
 
 def previous_run_commit(github: GitHub, branch: str | None) -> str | None:
@@ -1104,40 +1540,73 @@ def run_pipeline(config: RunConfig, publish: bool) -> None:
     tracked = collect_tracked_issues(github)
     for entry in tracked:
         log(f"  #{entry['number']} [{entry['state']}] {entry['title']}")
+    published_entries = [public_issue_entry(entry) for entry in tracked]
+    for entry in published_entries:
+        if entry.get("state") == "open" and entry.get("commit") == commit:
+            entry["fixedness"] = "not-detected"
     (workspace.findings / "open-issues.json").write_text(
-        json.dumps([public_issue_entry(entry) for entry in tracked], indent=2), encoding="utf-8"
+        json.dumps(published_entries, indent=2), encoding="utf-8"
     )
     baseline = previous_run_commit(github, branch_name(config.checkout))
     write_diff(config.checkout, baseline, commit, workspace.findings / "changes.diff")
     review_date = started.strftime("%Y-%m-%d")
-    run_id = started.strftime("weekly-%G-W%V")
+    run_id, run_url = workflow_run_metadata(started, config.repo)
     workspace.review_config.write_text(
-        json.dumps(review_configuration(config, commit, workspace, review_date, run_id), indent=2), encoding="utf-8"
+        json.dumps(review_configuration(config, workspace), indent=2), encoding="utf-8"
     )
 
     failure = None
+    validation_notes = []
     actions = []
     try:
         prepare_pi_packages(workspace)
         return_code = launch_awf(config, workspace)
         if return_code:
             raise ReviewError(f"The AWF review failed with exit code {return_code}")
-
-        overview_path(workspace)
-        require_complete_review(config, workspace)
-        accepted = validate_accepted(read_json(workspace.findings / "accepted.json"), config.severity)
-        duplicates = canonical_duplicates(read_json(workspace.findings / "duplicates.json"), config.severity)
+        raw_accepted = read_json(workspace.findings / "accepted.json")
+        raw_duplicates = read_json(workspace.findings / "duplicates.json")
+        conflicting_indices = declared_candidate_indices(raw_accepted) & declared_candidate_indices(raw_duplicates)
+        if conflicting_indices:
+            raise ReviewError(f"Candidates are both new and duplicate: {sorted(conflicting_indices)}")
+        claimed_indices = set()
+        accepted = validate_accepted(
+            raw_accepted,
+            config.severity,
+            workspace,
+            config.panel_size,
+            claimed_indices=claimed_indices,
+            validation_notes=validation_notes,
+        )
+        duplicates = canonical_duplicates(
+            raw_duplicates,
+            config.severity,
+            workspace,
+            config.panel_size,
+            claimed_indices=claimed_indices,
+            validation_notes=validation_notes,
+        )
         raw_fixedness = read_json(workspace.findings / "fixedness.json")
+        claimed_duplicate_targets = {
+            entry["duplicate_of"]
+            for entry in raw_duplicates
+            if isinstance(entry, dict)
+            and isinstance(entry.get("duplicate_of"), int)
+            and not isinstance(entry["duplicate_of"], bool)
+            and entry["duplicate_of"] > 0
+        }
 
         # Re-evaluate the tracker immediately before applying results, while
         # making no claims of atomicity with the panel's reasoning.
         latest = collect_tracked_issues(github)
         fixedness = canonical_fixedness(
             raw_fixedness,
-            latest,
-            duplicate_ids={duplicate["duplicate_of"] for duplicate in duplicates},
+            workspace=workspace,
+            panel_size=config.panel_size,
+            tracked=latest,
+            duplicate_ids=claimed_duplicate_targets,
             initial=tracked,
             icon4py_commit=commit,
+            validation_notes=validation_notes,
         )
         log("Reconciling with the issue tracker...")
         actions = reconcile(
@@ -1153,6 +1622,8 @@ def run_pipeline(config: RunConfig, publish: bool) -> None:
             config.panel_size,
             publish,
             actions=actions,
+            checkout=config.checkout,
+            run_url=run_url,
         )
     except Exception as exc:
         failure = str(exc)
@@ -1160,7 +1631,7 @@ def run_pipeline(config: RunConfig, publish: bool) -> None:
     finally:
         stats = collect_statistics(workspace, (now() - started).total_seconds())
         if len(list(workspace.reports.glob("*.md"))) == 1:
-            append_report(workspace, actions, publish, stats, failure)
+            append_report(workspace, actions, publish, stats, failure, validation_notes, run_id, run_url, review_date, config.repo, commit, config.checkout)
         (workspace.root / "statistics.json").write_text(
             json.dumps(stats, indent=2), encoding="utf-8"
         )
