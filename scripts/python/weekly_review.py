@@ -1563,6 +1563,8 @@ def run_pipeline(config: RunConfig, publish: bool) -> None:
         return_code = launch_awf(config, workspace)
         if return_code:
             raise ReviewError(f"The AWF review failed with exit code {return_code}")
+        overview_path(workspace)
+        require_complete_review(config, workspace)
         raw_accepted = read_json(workspace.findings / "accepted.json")
         raw_duplicates = read_json(workspace.findings / "duplicates.json")
         conflicting_indices = declared_candidate_indices(raw_accepted) & declared_candidate_indices(raw_duplicates)
