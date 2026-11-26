@@ -29,8 +29,9 @@ tracked issues or human-rejected findings with `state` `invalid`. You may still
 examine the same files for other issues.
 
 Then read `<findings_dir>/changes.diff` for the code that changed since the last
-review. Prioritize the changed code, but also examine the rest of the checkout.
-If `changes.diff` is absent, review the full checkout.
+review. The diff is a starting point, not a scope: review the changed code
+thoroughly, then examine the rest of the checkout with the same rigor. If
+`changes.diff` is absent, review the full checkout.
 
 Performance issues include, but are not limited to:
 

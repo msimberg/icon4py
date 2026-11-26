@@ -28,7 +28,9 @@ GitHub issue `number`, title, location, description, suggested fix, and state:
   this original issue.
 
 `changes.diff`, when present, is code changed since the previous review on this
-branch. If the file is absent, inspect the full checkout.
+branch. The diff tells reviewers where to start, not where to stop; reviewers
+must still examine the full checkout. If the file is absent, inspect the full
+checkout.
 
 ## Thresholds
 
